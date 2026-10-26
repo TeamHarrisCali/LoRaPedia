@@ -13,7 +13,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---- Stage 2: runtime ----------------------------------------------------------------------------------------------
-FROM python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70
+FROM python:3.15-slim-bookworm@sha256:575f8bc12ec26542e0678bc6b60e385218248019d433157ec327264a78c3a853
 
 # PYTHONDONTWRITEBYTECODE: nothing is written into the (read-only) code folder. LORAPEDIA_INSTALL=docker tells the app it is
 # in a container, where it cannot update itself but can ask the separate updater container to.
