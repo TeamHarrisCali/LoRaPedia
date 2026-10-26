@@ -44,3 +44,17 @@ def test_recent_queries_are_newest_first_by_time_not_by_insert_order():
     demo.seed(store, 12)  # back-dated rows: ids ascend but timestamps do not
     stamps = [r["ts"] for r in store.recent_queries(12)]
     assert stamps == sorted(stamps, reverse=True)
+
+
+def test_ollama_url_can_be_set_from_the_environment(monkeypatch):
+    import importlib
+
+    from lorapedia import config
+    monkeypatch.setenv("LORAPEDIA_OLLAMA_URL", "http://ollama:11434/")
+    try:
+        importlib.reload(config)
+        s = config.Settings()
+        assert s.llm_base_url == "http://ollama:11434/v1" and s.embed_base_url == "http://ollama:11434"
+    finally:
+        monkeypatch.delenv("LORAPEDIA_OLLAMA_URL")
+        importlib.reload(config)

@@ -1,0 +1,54 @@
+# LoRaPedia + Ollama.   Start:  docker compose up -d     Open:  http://localhost:8000
+#
+# Everything runs locally. The only internet use is when YOU press a download button
+# (pulling a model, downloading a Wikipedia file).
+
+services:
+  lorapedia:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: lorapedia:latest
+    restart: unless-stopped
+    ports:
+      # Published on this computer only. Change to "8000:8000" to open it to your whole network,
+      # but note the UI has no password (see README, "Security").
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - lorapedia-data:/data          # databases, Wikipedia files, settings
+    environment:
+      LORAPEDIA_OLLAMA_URL: http://ollama:11434
+    depends_on:
+      - ollama
+
+    # --- USB radio (Linux) ---------------------------------------------------------------
+    # 1. Find the port:   ls /dev/ttyACM* /dev/ttyUSB*
+    # 2. Uncomment the two blocks below and use YOUR port.
+    # 3. Radio page -> "Automatic (USB)" or "USB, choose the port" -> /dev/ttyACM0
+    # `group_add` lets the non-root container user open the device. Use the numeric group id of the
+    # device's group:   stat -c %g /dev/ttyACM0
+    # devices:
+    #   - /dev/ttyACM0:/dev/ttyACM0
+    # group_add:
+    #   - "20"        # "dialout" on Debian/Ubuntu is 20; on Arch it is "uucp" (usually 986)
+    #
+    # No USB? Use a radio on your network instead (Radio page -> Network) or the built-in simulator.
+    # Bluetooth is not supported inside Docker; run ./run.sh for BLE.
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama   # downloaded models live here
+    # NVIDIA GPU (optional; needs the NVIDIA Container Toolkit). Uncomment to use it:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  lorapedia-data:
+  ollama-models:

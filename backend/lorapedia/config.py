@@ -1,8 +1,13 @@
 """User-editable settings. Everything here is editable from the UI, not just env vars."""
 
+import os
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+# Where Ollama lives on first run. docker-compose sets this to http://ollama:11434. Once settings are saved
+# (from the UI) the saved values win.
+OLLAMA_URL = os.environ.get("LORAPEDIA_OLLAMA_URL", "http://localhost:11434").rstrip("/")
 
 DEFAULT_SYSTEM_PROMPT = (
     "You answer questions using ONLY the provided context. Be factual and direct. "
@@ -39,10 +44,10 @@ class Settings(BaseModel):
 
     # Models. Defaults assume a local Ollama; any OpenAI-compatible server works for the LLM.
     llm_backend: Literal["openai", "mock"] = "openai"  # "mock" = no model, for demos/UI testing
-    llm_base_url: str = "http://localhost:11434/v1"
+    llm_base_url: str = f"{OLLAMA_URL}/v1"
     llm_model: str = "llama3.2:3b"
     embed_backend: Literal["ollama", "hash"] = "ollama"  # "hash" = no model, keyword-style vectors
-    embed_base_url: str = "http://localhost:11434"
+    embed_base_url: str = OLLAMA_URL
     embed_model: str = "nomic-embed-text"
 
     # Generation
