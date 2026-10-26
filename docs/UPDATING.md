@@ -10,6 +10,13 @@
 
 Everything is under **Settings → Updates**. "Check now" works even with the daily checks off.
 
+## What an update cannot change
+
+An automatic update replaces the `lorapedia` container's image. It cannot change **your** `docker-compose.yml`, the **updater**
+container itself, or the Ollama container: those are yours to update (`git pull`, or fetch `docker-compose.yml` from the release,
+then `docker compose pull updater && docker compose up -d updater`). A release that needs this says so in its changelog under
+"Upgrading".
+
 ## Update by hand
 
 ```bash

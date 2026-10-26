@@ -5,6 +5,19 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-26
+
+### Fixed
+- **Automatic updates failed at the switch step on a real Docker install.** The updater runs as root with every capability dropped,
+  so it could not write the new image into `.env` in a folder owned by you. It now has exactly two capabilities back
+  (`DAC_OVERRIDE` to write there, `CHOWN` to hand the file back to you), and the new `.env` keeps its owner and permissions.
+  Found by running the 0.1.0 images against a real Docker daemon.
+- A leftover `.env.tmp` from an interrupted update could block every later update. It is now replaced, and removed on failure.
+
+### Upgrading from 0.1.0
+The compose file is yours, so an update cannot change it. Once, fetch the new `docker-compose.yml` (`git pull`, or download it from
+this release) and run `docker compose pull updater && docker compose up -d updater`. From then on updates are automatic.
+
 ## [0.1.0] - 2026-10-26
 
 First release.

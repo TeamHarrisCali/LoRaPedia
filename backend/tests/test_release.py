@@ -33,8 +33,8 @@ def test_the_version_is_valid_semver_and_has_one_source():
     assert RC.is_semver(VERSION) and RC.read_version() == VERSION
     assert 'version = "' not in read("backend", "pyproject.toml").split("[tool.hatch")[0].split("dynamic")[0]  # no second copy
     assert 'dynamic = ["version"]' in read("backend", "pyproject.toml")
-    import importlib.metadata as md
-    assert md.version("lorapedia") == VERSION  # packaging reads it from __init__.py
+    # packaging reads the version from __init__.py (not installed metadata, which an editable install only refreshes on reinstall)
+    assert '[tool.hatch.version]\npath = "lorapedia/__init__.py"' in read("backend", "pyproject.toml")
 
 
 @pytest.mark.parametrize("bad", ["1", "1.2", "v1.2.3", "01.2.3", "1.2.3.4", "1.2.x", "", None, "1.2.3-"])
