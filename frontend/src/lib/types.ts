@@ -13,6 +13,10 @@ export interface Settings {
   auto_send_parts: boolean;
   send_delay_s: number;
   source_tags: boolean;
+  ai_fallback: boolean;
+  queue_when_limited: boolean;
+  max_queued_per_node: number;
+  ack_queued: boolean;
   rate_limit_queries: number;
   rate_limit_window_s: number;
   queue_max: number;
@@ -78,7 +82,7 @@ export interface QueryRow {
   byte_limit: number;
   latency_s: number;
   sources: string[];
-  debug: { prompt: string; compressed: boolean; chunks: QueryChunk[]; demo?: boolean };
+  debug: { prompt: string; compressed: boolean; chunks: QueryChunk[]; demo?: boolean; fallback?: boolean };
   /** True when it arrived over the WebSocket just now (drives the typewriter reveal). */
   live?: boolean;
 }
@@ -106,6 +110,7 @@ export interface IndexProgress {
   zim: string; entries_done: number; entries_total: number; articles: number; chunks: number;
   articles_per_s: number; eta_s: number | null; error: string | null;
   params: { max_articles?: number | null; lead_only?: boolean };
+  mode?: "all" | "fast"; phase?: "all" | "first" | "rest"; phase_label?: string;
 }
 export interface KbStats { articles: number; chunks: number; disk_bytes: number; last_indexed: number | null; embedder: string | null }
 export interface CatalogEntry { variant: string; filename: string; date: string; size: string; url: string; description: string }
@@ -116,7 +121,7 @@ export interface DownloadJob {
 export interface SearchResult { title: string; section: string; text: string; score: number; detail: Record<string, number | null> }
 
 export interface TryResult {
-  parts: string[]; bytes: number[]; byte_limit: number; raw: string; compressed: boolean; latency_s: number;
+  parts: string[]; bytes: number[]; byte_limit: number; raw: string; compressed: boolean; fallback?: boolean; latency_s: number;
   chunks: { title: string; section: string; score: number }[];
 }
 export interface WizardState { done: string[]; skipped: string[]; finished: boolean; step: number }

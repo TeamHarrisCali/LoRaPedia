@@ -41,13 +41,24 @@ export function SettingsPage() {
         <div className="grid gap-x-6 sm:grid-cols-3">
           <Field label="Questions allowed" htmlFor="rl-n" help="Per node, per time window. 0 turns limiting off."><input id="rl-n" type="number" min={0} className="field" value={draft.rate_limit_queries} onChange={(e) => set({ rate_limit_queries: Number(e.target.value) })} /></Field>
           <Field label="Time window (seconds)" htmlFor="rl-w" help="1 question per 60 seconds by default."><input id="rl-w" type="number" min={1} className="field" value={draft.rate_limit_window_s} onChange={(e) => set({ rate_limit_window_s: Number(e.target.value) })} /></Field>
-          <Field label="Longest queue" htmlFor="rl-q" help="When this many answers are waiting, new questions get a 'busy' reply."><input id="rl-q" type="number" min={1} className="field" value={draft.queue_max} onChange={(e) => set({ queue_max: Number(e.target.value) })} /></Field>
+          <Field label="Longest queue" htmlFor="rl-q" help="When this many questions are waiting across everyone, new ones get a 'busy' reply."><input id="rl-q" type="number" min={1} className="field" value={draft.queue_max} onChange={(e) => set({ queue_max: Number(e.target.value) })} /></Field>
         </div>
+        <Toggle checked={draft.queue_when_limited} onChange={(v) => set({ queue_when_limited: v })} label="Hold questions that come too soon"
+          help="A question sent inside someone's cooldown is kept and answered when its turn comes, instead of getting a 'busy, try again' reply." />
+        {draft.queue_when_limited && (
+          <div className="ml-8 grid gap-x-6 sm:grid-cols-2">
+            <Field label="Most waiting per node" htmlFor="rl-mq" help="One person cannot hold more than this many questions at once; beyond it they get a 'busy' reply."><input id="rl-mq" type="number" min={1} max={10} className="field" value={draft.max_queued_per_node} onChange={(e) => set({ max_queued_per_node: Number(e.target.value) })} /></Field>
+            <Toggle checked={draft.ack_queued} onChange={(v) => set({ ack_queued: v })} label="Tell them it was queued"
+              help="Sends a short 'Queued. Answer in about 45s.' so the asker knows it arrived. Turn off to save airtime." />
+          </div>
+        )}
       </Card>
 
       <Card className="mb-5">
         <SectionTitle>Answers</SectionTitle>
         <Toggle checked={draft.source_tags} onChange={(v) => set({ source_tags: v })} label="Add a source tag" help="Ends the answer with a tag like [wp:Photosynthesis] when there is room left in the message." />
+        <Toggle checked={draft.ai_fallback} onChange={(v) => set({ ai_fallback: v })} label="Answer from the AI's memory when Wikipedia has nothing"
+          help="Only once the whole library is indexed, so 'not found' is certain. The reply starts with [AI memory - may be wrong]. Small models do get facts wrong: turn this off if you would rather hear 'not found'." />
       </Card>
 
       <Card className="mb-5">

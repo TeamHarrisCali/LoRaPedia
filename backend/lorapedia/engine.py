@@ -18,6 +18,15 @@ from .triggers import parse_message
 log = logging.getLogger(__name__)
 
 NOT_FOUND = "Not found in my offline library."
+NOT_FOUND_PARTIAL = "Not found yet: my library is still being indexed. Try again later."
+# Added by code, not left to the model, so the warning can never be forgotten or reworded away.
+FALLBACK_PREFIX = "[AI memory - may be wrong] "
+FALLBACK_SYSTEM = (
+    "The offline encyclopedia has nothing on this question, so answer from your own general knowledge. "
+    "Be brief and factual, plain text, no markdown, no preamble. If you are not reasonably sure, reply exactly: "
+    "I don't know. For medical, legal, electrical or other safety-critical questions give only basic general "
+    "information and say to ask a professional."
+)
 HELP_TEXT = "Ask me a question by DM. Commands: ?help ?more ?stats. Answers come from offline Wikipedia."
 MORE_HINT = " ?more"
 CHUNK_CHARS = 700  # per-chunk context cap so small models stay fast
@@ -30,6 +39,8 @@ class Generated:
     prompt: str
     compressed: bool
     raw: str  # cleaned LLM text before fitting
+    fallback: bool = False  # answered from the model's own memory because the library had nothing
+    found: bool = True  # the answer came from retrieved Wikipedia text
 
 
 @dataclass
@@ -52,7 +63,10 @@ class Engine:
         emit: Callable[[dict], Awaitable[None]] | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        library_state: Callable[[], str] = lambda: "none",
     ) -> None:
+        # "complete"/"covered": every article is searchable, so "no match" is definitive. "partial": still indexing.
+        self._library_state = library_state
         self._settings = settings
         self.radio, self.llm, self.retriever, self.store = radio, llm, retriever, store
         self.sim_radio = sim_radio  # simulated senders are answered here, never over a real radio
@@ -61,8 +75,14 @@ class Engine:
         self.limiter = RateLimiter(clock)
         self.queue: asyncio.Queue[Job] = asyncio.Queue()
         self._more: dict[str, list[str]] = {}  # sender -> parts not yet sent
+        self._delayed: set[asyncio.Task] = set()  # questions waiting out their node's cooldown
 
     # ---- intake -------------------------------------------------------------------------
+
+    @property
+    def pending_count(self) -> int:
+        """Everything not yet answered: in the queue, being processed, or waiting out a cooldown."""
+        return self.queue.qsize() + len(self._delayed)
 
     async def submit(self, packet: Packet) -> str:
         """Filter, rate-limit and enqueue. Returns the outcome (handy for tests/UI)."""
@@ -81,22 +101,44 @@ class Engine:
             self.queue.put_nowait(Job(packet, reply=self._command_reply(parsed.text, packet, s)))
             return "command"
 
-        if self.queue.qsize() >= s.queue_max:
+        if self.pending_count >= s.queue_max:
             self.queue.put_nowait(Job(packet, reply="Busy, try again later."))
             return "queue_full"
-        wait = self.limiter.check(packet.sender_id, s.rate_limit_queries, s.rate_limit_window_s)
-        if wait:
-            self.queue.put_nowait(Job(packet, reply=f"Busy, try again in {wait}s."))
-            return "rate_limited"
+
+        node = packet.sender_id
+        if s.queue_when_limited and s.rate_limit_queries > 0:
+            waiting = self.limiter.pending(node)
+            if waiting >= s.max_queued_per_node:  # a cap keeps one node from filling the whole queue
+                self.queue.put_nowait(Job(packet, reply=f"Busy: {waiting} of your questions are already waiting."))
+                return "rate_limited"
+            wait = self.limiter.reserve(node, s.rate_limit_queries, s.rate_limit_window_s)
+            if wait:
+                job = Job(packet, question=parsed.text)
+                task = asyncio.create_task(self._release(job, wait))
+                self._delayed.add(task)
+                task.add_done_callback(self._delayed.discard)
+                if s.ack_queued:
+                    self.queue.put_nowait(Job(packet, reply=f"Queued. Answer in about {wait}s."))
+                return "delayed"
+        else:
+            wait = self.limiter.check(node, s.rate_limit_queries, s.rate_limit_window_s)
+            if wait:
+                self.queue.put_nowait(Job(packet, reply=f"Busy, try again in {wait}s."))
+                return "rate_limited"
         self.queue.put_nowait(Job(packet, question=parsed.text))
         return "queued"
+
+    async def _release(self, job: Job, wait: float) -> None:
+        """Hold a question until its node's cooldown is over, then let it join the queue."""
+        await self._sleep(wait)
+        self.queue.put_nowait(job)
 
     def _command_reply(self, name: str, packet: Packet, s: Settings) -> str:
         if name == "help":
             return HELP_TEXT
         if name == "stats":
             st = self.store.today_stats()
-            return f"{st['queries']} Qs today, avg {st['avg_latency_s']}s, queue {self.queue.qsize()}."
+            return f"{st['queries']} Qs today, avg {st['avg_latency_s']}s, queue {self.pending_count}."
         # "more": release the next held part (only used when auto_send_parts is off)
         held = self._more.get(packet.sender_id)
         if not held:
@@ -135,8 +177,8 @@ class Engine:
         latency = round(self._clock() - started, 2)
         entry = dict(
             sender_id=job.packet.sender_id, sender_name=job.packet.sender_name, question=job.question,
-            parts=parts, byte_limit=s.byte_limit, latency_s=latency, sources=list(dict.fromkeys(c.title for c in chunks)),  # unique, best first
-            debug={"prompt": prompt, "compressed": compressed,
+            parts=parts, byte_limit=s.byte_limit, latency_s=latency, sources=list(dict.fromkeys(c.title for c in chunks)) if gen.found else [],  # unique, best first; none for "not found"
+            debug={"prompt": prompt, "compressed": compressed, "fallback": gen.fallback,
                    "chunks": [{"title": c.title, "text": c.text, "score": c.score} for c in chunks]},
         )
         entry["id"] = self.store.log_query(**entry)
@@ -164,14 +206,39 @@ class Engine:
                     s.system_prompt,
                     f"REWRITE this answer in at most {budget} bytes, keeping the key facts:\n{raw}",
                     temperature=s.temperature, max_tokens=s.max_tokens))
-        if not chunks or raw.lower().startswith("not found"):
-            raw = NOT_FOUND
+        found = bool(chunks) and not raw.lower().startswith("not found")
+        fallback = False
+        if not found:
+            state = self._library_state()
+            if state in ("complete", "covered") and s.ai_fallback:
+                # Every article is searchable, so "not in any article" is certain: the model may speak from memory, marked as a guess.
+                guess = await self._ai_memory(question, s, limit)  # one message at most: see below
+                raw = FALLBACK_PREFIX + guess if guess else NOT_FOUND
+                fallback = bool(guess)
+            else:
+                raw = NOT_FOUND_PARTIAL if state == "partial" else NOT_FOUND
 
         # step 3: guaranteed-safe truncate + split (never exceeds the limit)
-        parts = fitter.fit_answer(raw, limit, max_parts)
-        if s.source_tags and chunks and raw != NOT_FOUND:
+        # A guess is the least reliable thing we send, so it never uses more than one message of airtime.
+        parts = fitter.fit_answer(raw, limit, 1 if fallback else max_parts)
+        if s.source_tags and found:
             parts = fitter.append_tag(parts, f"[wp:{chunks[0].title}]", limit)
-        return Generated(parts, chunks, prompt, compressed, raw)
+        return Generated(parts, chunks, prompt, compressed, raw, fallback, found)
+
+    async def _ai_memory(self, question: str, s: Settings, budget: int) -> str | None:
+        """A short answer from the model's own knowledge, or None if it does not know."""
+        room = budget - fitter.byte_len(FALLBACK_PREFIX)
+        if room < 20:
+            return None
+        try:
+            text = fitter.clean_text(await self.llm.generate(
+                FALLBACK_SYSTEM, f"Question: {question}\n\nAnswer in at most {room} bytes.",
+                temperature=s.temperature, max_tokens=s.max_tokens))
+        except Exception:
+            log.warning("AI-memory fallback failed", exc_info=True)  # the library lookup already worked; just say not found
+            return None
+        refusals = ("i don't know", "i do not know", "not found", "i'm not sure", "i am not sure", "i cannot", "i can't")
+        return None if not text or text.lower().startswith(refusals) else text
 
     def _build_prompt(self, question: str, chunks, limit: int, budget: int) -> str:
         ctx = "\n".join(f"[{i}] {c.title}: {c.text[:CHUNK_CHARS]}" for i, c in enumerate(chunks, 1))

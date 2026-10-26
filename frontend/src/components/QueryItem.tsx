@@ -32,6 +32,7 @@ export function QueryItem({ q, expandable = false }: { q: QueryRow; expandable?:
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <ByteMeter bytes={bytes} limit={q.byte_limit} className="min-w-48 flex-1" />
         {parts.length > 1 && <Badge tone="amber">{parts.length} parts</Badge>}
+        {q.debug?.fallback && <Badge tone="amber">AI memory, unverified</Badge>}
         {q.sources.map((s) => <Badge key={s} tone="teal">{s}</Badge>)}
       </div>
     </>
@@ -45,7 +46,7 @@ export function QueryItem({ q, expandable = false }: { q: QueryRow; expandable?:
         <div className="space-y-4 border-t border-line p-4 text-sm">
           <div>
             <h3 className="mb-1 text-base font-semibold">Retrieved chunks</h3>
-            {q.debug.chunks.length === 0 ? <p className="text-muted">Nothing relevant was found, so the node replied "not found" without asking the LLM.</p> : (
+            {q.debug.chunks.length === 0 ? <p className="text-muted">Nothing relevant was found in the library.</p> : (
               <ol className="space-y-2">
                 {q.debug.chunks.map((c, i) => (
                   <li key={i} className="rounded-lg border border-line bg-bg p-3">

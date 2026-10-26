@@ -75,8 +75,9 @@ class DownloadRequest(BaseModel):
 
 class IndexStart(BaseModel):
     zim: str
-    max_articles: int | None = None  # e.g. 100000 for "top 100k articles"
+    max_articles: int | None = None  # e.g. 100000 for "top 100k articles" (ignored in fast mode)
     lead_only: bool = False
+    mode: str = "fast"  # "fast": opening chunk of every article first, then the rest. "all": article by article
 
 
 def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | None = None,
@@ -124,7 +125,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     radio = RadioManager(settings=settings, submit=lambda pkt: engine.submit(pkt), emit=broadcast,
                          **{k: v for k, v in (radio_options or {}).items() if k != "http_transport"})
     engine = Engine(settings=settings, radio=radio, sim_radio=radio.sim, llm=configured_llm,
-                    retriever=retriever, store=store, emit=broadcast)
+                    retriever=retriever, store=store, emit=broadcast, library_state=index.library_state)
     indexer = Indexer(index, current_embedder())
 
     def register_zim(path: Path) -> dict:
@@ -170,7 +171,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
             rebuild = index.embedder_name() not in (None, indexer.embedder.name)
             if rebuild:
                 retire(old)
-            indexer.start(name, max_articles=None, lead_only=False)
+            indexer.start(name, max_articles=None, lead_only=False, mode="fast")
             await indexer.wait()
             if indexer.progress.state == "done" and not rebuild:
                 retire(old)  # keep the old package serving until the new one is fully ready
@@ -196,7 +197,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
 
     @app.get("/api/health")
     async def health():
-        return {"radio": radio.active, "queue": engine.queue.qsize(), "knowledge_base": retriever.mode,
+        return {"radio": radio.active, "queue": engine.pending_count, "knowledge_base": retriever.mode,
                 "indexing": indexer.progress.state, **store.today_stats()}
 
     @app.get("/api/llm/status")
@@ -336,7 +337,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
             raise HTTPException(404, "Not in the library.")
         indexer.embedder = current_embedder()
         try:
-            indexer.start(body.zim, max_articles=body.max_articles, lead_only=body.lead_only)
+            indexer.start(body.zim, max_articles=body.max_articles, lead_only=body.lead_only, mode=body.mode)
         except RuntimeError as exc:
             raise HTTPException(409, str(exc)) from exc
         return indexer.progress.as_dict()
@@ -418,7 +419,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         except Exception as exc:  # LLMError and anything else: report it, don't crash the page
             raise HTTPException(502, str(exc) or exc.__class__.__name__) from exc
         return {"parts": gen.parts, "bytes": [fitter.byte_len(p) for p in gen.parts], "byte_limit": s.byte_limit,
-                "raw": gen.raw, "compressed": gen.compressed, "latency_s": round(asyncio.get_running_loop().time() - started, 2),
+                "raw": gen.raw, "compressed": gen.compressed, "fallback": gen.fallback, "latency_s": round(asyncio.get_running_loop().time() - started, 2),
                 "chunks": [{"title": c.title, "section": c.section, "score": c.score} for c in gen.chunks]}
 
     @app.get("/api/wizard")

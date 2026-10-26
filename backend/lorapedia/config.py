@@ -36,8 +36,13 @@ class Settings(BaseModel):
     auto_send_parts: bool = True  # False: send part 1, rest on "?more"
     send_delay_s: float = Field(5.0, ge=0, le=120)  # airtime courtesy between sends
     source_tags: bool = True
+    # When the whole library is indexed and still has nothing, answer from the model's memory, marked as a guess.
+    ai_fallback: bool = True
 
     # Rate limiting / queue
+    queue_when_limited: bool = True  # hold a too-soon question and answer it on its turn, not reply "busy"
+    max_queued_per_node: int = Field(3, ge=1, le=10)  # most questions one node may have waiting
+    ack_queued: bool = True  # send a short "queued, answer in ~Ns" so the asker knows it was received
     rate_limit_queries: int = Field(1, ge=0)
     rate_limit_window_s: int = Field(60, ge=1)
     queue_max: int = Field(20, ge=1)

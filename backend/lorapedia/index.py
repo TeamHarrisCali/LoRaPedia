@@ -31,7 +31,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 CREATE TABLE IF NOT EXISTS index_state (
     zim TEXT PRIMARY KEY, last_entry INTEGER NOT NULL DEFAULT -1, articles INTEGER NOT NULL DEFAULT 0,
     chunks INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'idle', params TEXT NOT NULL DEFAULT '{}',
-    error TEXT, updated REAL
+    error TEXT, updated REAL,
+    phase TEXT NOT NULL DEFAULT 'all',      -- 'all' = complete/standard, 'first' / 'rest' = a two-pass run in progress
+    rest_from INTEGER NOT NULL DEFAULT 0    -- two-pass: entries before this already have every chunk
 );
 """
 
@@ -48,6 +50,11 @@ class Index:
         sqlite_vec.load(self.db)
         self.db.enable_load_extension(False)
         self.db.executescript(SCHEMA)
+        cols = {r["name"] for r in self.db.execute("PRAGMA table_info(index_state)")}
+        for name, ddl in (("phase", "TEXT NOT NULL DEFAULT 'all'"), ("rest_from", "INTEGER NOT NULL DEFAULT 0")):
+            if name not in cols:  # databases created before two-pass indexing
+                self.db.execute(f"ALTER TABLE index_state ADD COLUMN {name} {ddl}")
+        self.db.commit()
         self.path = str(path)
 
     # ---- meta / vector table ------------------------------------------------------------
@@ -119,6 +126,32 @@ class Index:
             (zim, status, error, json.dumps(params or {}), time.time()))
         self.db.commit()
 
+    def update_state(self, zim: str, **fields) -> None:
+        """Set checkpoint/phase columns directly (names come from our own code, never from users)."""
+        sets = ", ".join(f"{k}=?" for k in fields)
+        self.db.execute(f"UPDATE index_state SET {sets}, updated=? WHERE zim=?", (*fields.values(), time.time(), zim))
+        self.db.commit()
+
+    def library_state(self) -> str:
+        """How far indexing has got, for deciding whether "no match" is certain:
+
+        "none"     nothing indexed;
+        "partial"  some article has not been looked at yet, so "not found" may just mean "not yet";
+        "covered"  every article has at least its opening indexed (two-pass indexing is on its second pass),
+                   so a missing *topic* is certain even though deep details may still be arriving;
+        "complete" everything is indexed.
+        """
+        # Only files that have been indexed (or are being) form the searchable library. A file added but never
+        # indexed (e.g. the sample) is listed as "Not indexed" in the UI and must not hold every answer at "partial".
+        rows = self.db.execute("SELECT z.name, s.status, s.phase FROM zims z JOIN index_state s ON s.zim=z.name").fetchall()
+        if not rows or self.chunk_count() == 0:
+            return "none"
+        if all(r["status"] == "done" and r["phase"] == "all" for r in rows):
+            return "complete"
+        if all(r["phase"] == "rest" or (r["phase"] == "all" and r["status"] == "done") for r in rows):
+            return "covered"
+        return "partial"
+
     def add_batch(self, zim: str, rows: list[tuple], last_entry: int, articles: int) -> None:
         """Atomically store chunks+vectors for a batch AND advance the checkpoint (safe to resume).
 
@@ -188,6 +221,9 @@ class Progress:
     eta_s: float | None = None
     error: str | None = None
     params: dict = field(default_factory=dict)
+    mode: str = "all"  # "all" (article by article) or "fast" (two passes)
+    phase: str = "all"  # fast mode: "first" (opening chunk of every article) then "rest"
+    phase_label: str = ""
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -207,12 +243,15 @@ class Indexer:
         self._stop = False
         self._task: asyncio.Task | None = None
 
-    def start(self, zim_name: str, *, max_articles: int | None = None, lead_only: bool = False) -> asyncio.Task:
+    def start(self, zim_name: str, *, max_articles: int | None = None, lead_only: bool = False,
+              mode: str = "all") -> asyncio.Task:
+        """mode "fast": index the opening chunk of every article first, then the rest, so every topic becomes
+        answerable early. mode "all": every chunk of each article in turn."""
         if self._task and not self._task.done():
             raise RuntimeError("Indexing is already running.")
         self._stop = False
         self._gate.set()
-        self._task = asyncio.create_task(self.run(zim_name, max_articles=max_articles, lead_only=lead_only))
+        self._task = asyncio.create_task(self.run(zim_name, max_articles=max_articles, lead_only=lead_only, mode=mode))
         return self._task
 
     def pause(self) -> None:
@@ -233,9 +272,10 @@ class Indexer:
         if self._task:
             await self._task
 
-    async def run(self, zim_name: str, *, max_articles: int | None = None, lead_only: bool = False) -> None:
-        p = self.progress = Progress(state="running", zim=zim_name,
-                                     params={"max_articles": max_articles, "lead_only": lead_only})
+    async def run(self, zim_name: str, *, max_articles: int | None = None, lead_only: bool = False,
+                  mode: str = "all") -> None:
+        p = self.progress = Progress(state="running", zim=zim_name, mode=mode,
+                                     params={"max_articles": max_articles, "lead_only": lead_only, "mode": mode})
         try:
             zim = self.index.get_zim(zim_name)
             if not zim:
@@ -245,48 +285,86 @@ class Indexer:
             self.index.ensure_vec(self.embedder.name, dim)
             self.index.set_status(zim_name, "running", params=p.params)
             state = self.index.get_state(zim_name)
-            start = state["last_entry"] + 1  # resume right after the last committed batch
-            p.articles, p.chunks, p.entries_total = state["articles"], state["chunks"], reader.entry_count
-            p.entries_done = start
-            it = reader.articles(start)
-            t0, done_at_start, articles_at_start = time.monotonic(), start, p.articles
-            exhausted = False
-            while not exhausted:
-                await self._gate.wait()  # blocks here while paused
-                if self._stop:
-                    break
-                room = None if max_articles is None else max_articles - p.articles
-                if room is not None and room <= 0:
-                    break
-                batch, exhausted = await asyncio.to_thread(self._read_batch, it, min(self.BATCH_ARTICLES, room or 10**9), lead_only)
-                if batch:
-                    rows = await self._embed_rows(batch)
-                    last = batch[-1][0].entry_id
-                    self.index.add_batch(zim_name, rows, last_entry=last, articles=len(batch))
-                    p.articles += len(batch)
-                    p.chunks += len(rows)
-                    p.entries_done = last + 1
-                if exhausted:
-                    self.index.db.execute("UPDATE index_state SET last_entry=? WHERE zim=?", (reader.entry_count - 1, zim_name))
-                    self.index.db.commit()
-                    p.entries_done = reader.entry_count
-                elapsed = max(time.monotonic() - t0, 1e-6)
-                # Most ZIM entries are redirects, so articles/s and the ETA (which walks entries) differ.
-                p.articles_per_s = round((p.articles - articles_at_start) / elapsed, 2)
-                entries_per_s = (p.entries_done - done_at_start) / elapsed
-                remaining = p.entries_total - p.entries_done
-                p.eta_s = round(remaining / entries_per_s) if entries_per_s and remaining > 0 else 0
-                await asyncio.sleep(0)  # let the API/worker breathe between batches
-            p.state = "done" if not self._stop else "idle"
-            self.index.set_status(zim_name, "done" if not self._stop else "stopped")
+            p.articles, p.chunks = state["articles"], state["chunks"]
+
+            # A two-pass run that was interrupted always resumes as two-pass, whatever mode is asked for now.
+            if mode == "fast" or state["phase"] in ("first", "rest"):
+                p.mode = "fast"
+                max_articles = None  # a partial first pass would leave the second pass meaningless
+                phase = state["phase"]
+                if phase == "all":  # starting fresh: whatever is already indexed is complete and is skipped
+                    rest_from = state["last_entry"] + 1
+                    self.index.update_state(zim_name, phase="first", rest_from=rest_from)
+                    phase = "first"
+                else:
+                    rest_from = state["rest_from"]
+                if phase == "first":
+                    if await self._walk(zim_name, reader, state["last_entry"] + 1, "first", lead_only, None,
+                                        range_start=rest_from):
+                        return
+                    self.index.update_state(zim_name, phase="rest", last_entry=rest_from - 1)
+                    state = self.index.get_state(zim_name)
+                if await self._walk(zim_name, reader, state["last_entry"] + 1, "rest", lead_only, None, range_start=rest_from):
+                    return
+                self.index.update_state(zim_name, phase="all")
+            else:
+                if await self._walk(zim_name, reader, state["last_entry"] + 1, "all", lead_only, max_articles):
+                    return
+            p.state = "done"
+            self.index.set_status(zim_name, "done")
         except Exception as exc:  # checkpoint is intact, so "resume" picks up where this stopped
             log.exception("indexing %s failed", zim_name)
             p.state, p.error = "error", str(exc)
             if self.index.get_zim(zim_name):
                 self.index.set_status(zim_name, "error", error=str(exc))
 
+    PHASE_LABELS = {"first": "Pass 1 of 2: the opening of every article", "rest": "Pass 2 of 2: the rest of each article",
+                    "all": ""}
+
+    async def _walk(self, zim_name: str, reader: ZimReader, start: int, which: str, lead_only: bool,
+                    max_articles: int | None, range_start: int | None = None) -> bool:
+        """Index entries from `start` to the end of the file. `which` is "all", "first" (opening chunk only)
+        or "rest" (every chunk after the first). Returns True if the user stopped it, False if it finished
+        (or hit max_articles)."""
+        p = self.progress
+        base = 0 if which == "all" else (start if range_start is None else range_start)  # progress is shown per phase
+        p.phase, p.phase_label = which, self.PHASE_LABELS[which]
+        p.entries_total, p.entries_done = reader.entry_count - base, start - base
+        it = reader.articles(start)
+        t0, done_at_start, articles_at_start = time.monotonic(), start, p.articles
+        exhausted = False
+        while not exhausted:
+            await self._gate.wait()  # blocks here while paused
+            if self._stop:
+                self.index.set_status(zim_name, "stopped")
+                p.state = "idle"
+                return True
+            room = None if max_articles is None else max_articles - p.articles
+            if room is not None and room <= 0:
+                break
+            batch, exhausted = await asyncio.to_thread(self._read_batch, it, min(self.BATCH_ARTICLES, room or 10**9), lead_only, which)
+            if batch:
+                rows = await self._embed_rows(batch)
+                last = batch[-1][0].entry_id
+                new_articles = 0 if which == "rest" else len(batch)  # the second pass adds chunks, not articles
+                self.index.add_batch(zim_name, rows, last_entry=last, articles=new_articles)
+                p.articles += new_articles
+                p.chunks += len(rows)
+                p.entries_done = last + 1 - base
+            if exhausted:
+                self.index.update_state(zim_name, last_entry=reader.entry_count - 1)
+                p.entries_done = p.entries_total
+            elapsed = max(time.monotonic() - t0, 1e-6)
+            # Most ZIM entries are redirects, so articles/s and the ETA (which walks entries) differ.
+            p.articles_per_s = round((p.articles - articles_at_start) / elapsed, 2)
+            entries_per_s = (p.entries_done + base - done_at_start) / elapsed
+            remaining = p.entries_total - p.entries_done
+            p.eta_s = round(remaining / entries_per_s) if entries_per_s and remaining > 0 else 0
+            await asyncio.sleep(0)  # let the API/worker breathe between batches
+        return False
+
     @staticmethod
-    def _read_batch(it, n: int, lead_only: bool):
+    def _read_batch(it, n: int, lead_only: bool, which: str = "all"):
         batch, exhausted = [], False
         while len(batch) < n:
             try:
@@ -295,6 +373,10 @@ class Indexer:
                 exhausted = True
                 break
             chunks = chunk_article(article.html, lead_only=lead_only)
+            if which == "first":
+                chunks = chunks[:1]
+            elif which == "rest":
+                chunks = chunks[1:]
             if chunks:
                 batch.append((article, chunks))
         return batch, exhausted

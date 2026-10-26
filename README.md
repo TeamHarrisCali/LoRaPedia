@@ -100,11 +100,16 @@ start if the disk is too small, and refuses *before* downloading if the embeddin
 
 Image editions are not offered: LoRaPedia never uses images.
 
+**Two-pass indexing (the default).** Indexing runs in two passes so every topic works early. **Pass 1** indexes the
+opening of every article across the whole file; as soon as it finishes, any topic in the file can be found. **Pass 2**
+then adds the rest of each article, improving detail. You can ask questions throughout. (The older "article by
+article" order is still available; it finishes each article in alphabetical order, so only the early letters work
+until it is done.) Both passes are safe to stop and resume.
+
 **How long indexing takes.** It is dominated by the embedding model, which on one test laptop (RTX 3050 Ti,
-`nomic-embed-text`) handled roughly 60 to 130 chunks per second, i.e. about 6 to 26 articles per second depending on
-what else was using the GPU. Quick Reference (about 50,000 real articles, about 200,000 chunks) therefore takes
-roughly an hour or two. It is safe to stop and resume, and you can ask questions meanwhile; the index is built in
-the file's order (alphabetical), so until it finishes, only the part already done can answer.
+`nomic-embed-text`) handled roughly 60 to 130 chunks per second. Quick Reference has about 50,000 real articles and
+roughly 200,000 chunks, so pass 1 (one chunk per article) is on the order of ten minutes, and the whole job roughly
+an hour or two, depending on what else is using the GPU.
 
 **Counting articles.** Kiwix files list redirects as articles, and over 90% of a Wikipedia file's entries are
 redirects. LoRaPedia estimates the real article count by sampling, so figures are shown as "about".
@@ -116,9 +121,9 @@ Other ways to add a file (Knowledge page, *Other files and advanced options*):
 - **Paste a Kiwix link**, or browse every English Wikipedia variant Kiwix lists.
 - **The 12-article sample**, to try everything before downloading anything.
 
-**Indexing a subset.** For your own files you can index "first 10,000" or "intro only". "First N" means the first N
-in the file's own order, which is alphabetical, **not** the most popular, so a partial index is lopsided. Prefer
-letting it finish, or use a smaller package.
+**Indexing a subset.** In "article by article" mode you can index "first 10,000" or "intro only". "First N" means the
+first N in the file's own order, which is alphabetical, **not** the most popular, so a partial index is lopsided.
+The two-pass default avoids this: prefer it.
 
 If you change the embedding model after indexing, the index must be rebuilt (different models make incompatible
 vectors). The installer asks before doing this, and your files are never deleted by it.
@@ -153,6 +158,18 @@ people write `?what is a quasar` or `!wiki quasar`. The reply goes to the channe
 | `?more` | Next part of a long answer (when parts are sent on request) |
 | `?stats` | Questions today, average time, queue length |
 
+**When Wikipedia has nothing.** If a question matches no article, LoRaPedia does not just say "not found". Once every
+article is searchable (after pass 1), it asks the language model to answer **from its own memory**, and the reply
+always starts with **`[AI memory - may be wrong]`**. That warning is added by the program, not left to the model. A guess
+is never sent as more than **one message**, however long the model rambles, because it is the least reliable thing
+the node sends.
+A small model gets facts wrong, so treat these as hints: the model is told to say "I don't know" rather than guess,
+and to keep medical, legal and safety questions general. While indexing is still on pass 1, an unmatched question
+gets "Not found yet: my library is still being indexed" instead, because the article may simply not be indexed yet.
+Turn this off under *Settings → Answers* to get a plain "not found". Guesses are marked "AI memory, unverified" in the
+Live Feed. One caveat: a detail buried deep in an article may not be indexed until pass 2 finishes, so the model may
+answer that from memory even though Wikipedia has it; the warning covers that case too.
+
 **Message size.** A Meshtastic text message holds about 233 bytes. LoRaPedia counts **UTF-8 bytes, not
 characters** (accented letters and symbols cost 2 to 4), and uses a configurable limit, **200 by default**. An
 answer is made to fit like this:
@@ -166,9 +183,12 @@ each within the limit, up to a **maximum number of parts you set** (default 3). 
 with a pause between them, or the first part goes out and the rest wait for `?more`. Turn this off to always
 send one message.
 
-**Fair use of the airwaves.** Each node is limited to **1 question per 60 seconds** by default (a "busy, try again
-in Ns" reply is sent otherwise), answers leave one at a time, and there is a delay between messages. All
-adjustable. You can block nodes, or allow only listed ones, on the Radio page.
+**Fair use of the airwaves.** Each node is limited to **1 question per 60 seconds** by default. A question that comes
+too soon is **not rejected**: it is held and answered when its turn comes, and the asker gets a short
+"Queued. Answer in about 45s." so they know it arrived. Each node can have up to 3 waiting; beyond that, or when the
+whole queue is full (20 by default), they get a "Busy" reply. Answers leave one at a time with a delay between
+messages. All of this is adjustable, including switching back to plain "busy, try again in Ns" replies. You can
+block nodes, or allow only listed ones, on the Radio page.
 
 ## Settings
 
@@ -179,7 +199,7 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 | **Radio** | Connection (USB / network / Bluetooth / simulator), channel, trigger mode and prefixes, hop limit, **byte limit (50 to 233)**, multi-part and its cap, pause between sends, node block/allow lists |
 | **Model** | Language and embedding model (install with progress), temperature, max tokens, passages retrieved, system prompt (with *Reset to default*), a "try it" box showing the byte count |
 | **Knowledge** | Wikipedia files, downloads, indexing, a search playground |
-| **Settings** | Rate limits, queue length, source tags (`[wp:Title]`), theme, backup and restore, CSV export of the log, demo data |
+| **Settings** | Rate limits, queue length, source tags (`[wp:Title]`), AI-memory fallback, theme, backup and restore, CSV export of the log, demo data |
 
 Environment variables exist for deployment only: `LORAPEDIA_DATA` (data folder), `LORAPEDIA_HOST`,
 `LORAPEDIA_PORT`, and `LORAPEDIA_OLLAMA_URL` (where Ollama is, used for first-run defaults).
@@ -212,10 +232,12 @@ model has no tools and cannot run anything, so the worst outcome of a hostile qu
 | **"Model … is not installed"** | Install it from the Model page, or `ollama pull <name>`. |
 | **Indexing fails: embedding model not installed** | Install `nomic-embed-text` on the Model page, or turn on *Keyword-only search* there to index without one. |
 | **"Re-index needed"** | The index was built with a different embedding model. Remove the library entry and index again. Keyword search keeps working meanwhile. |
+| **"Not found yet: my library is still being indexed"** | Indexing is on pass 1, so the article may not be searchable yet. Check the Knowledge page. |
 | **Every answer is "Not found in my offline library"** | Nothing relevant was retrieved. Open the question in the Live Feed to see what was found, and use the search playground. Is the right file indexed? Is only the demo data loaded? |
+| **Indexing is much slower than expected** | Check where the embedding model is running: `ollama ps` should show it on `100% GPU`. If it shows mostly CPU (this happened on a 4 GB card when the chat model had loaded first and taken the memory), run `ollama stop llama3.2:3b` and `ollama stop nomic-embed-text`; the embedder reloads onto the GPU on its next request. Measured here: 20 chunks/s on CPU, 73 on GPU. |
 | **First answer is very slow** | The model is loading into memory. Later answers are faster. |
 | **Answers end in `...`** | They were cut to fit. Allow more parts, raise the byte limit (up to 233), or lower *max tokens*. |
-| **"Busy, try again in Ns"** | The per-node rate limit. Adjust it under Settings. |
+| **"Busy: N of your questions are already waiting" / "Busy, try again later"** | The sender already has the most questions allowed waiting, or the whole queue is full. Both limits are under Settings. Questions inside the cooldown are normally queued, not rejected. |
 | **Page is blank or looks broken after an update** | Hard-refresh the browser (Ctrl+Shift+R). |
 | **Download fails or stalls** | It keeps its progress: press Resume. This step needs internet; everything else does not. |
 | **Bluetooth radio not found in Docker** | Not supported in Docker. Use `./run.sh`. |

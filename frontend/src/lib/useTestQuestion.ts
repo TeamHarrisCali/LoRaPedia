@@ -40,7 +40,8 @@ export function useTestQuestion(onAnswer?: () => void) {
     }, 120_000);
     try {
       const { outcome } = await api.post<{ outcome: string }>("/api/simulator/send", { text: q, sender_id: sender, sender_name: "SIM" });
-      if (outcome !== "queued") { clearTimeout(giveUp); pending.current = null; setSending(false); setNote(OUTCOMES[outcome] ?? outcome); }
+      // "delayed" = held for its node's cooldown; the answer still arrives, so keep waiting.
+      if (outcome !== "queued" && outcome !== "delayed") { clearTimeout(giveUp); pending.current = null; setSending(false); setNote(OUTCOMES[outcome] ?? outcome); }
     } catch (e) { clearTimeout(giveUp); pending.current = null; setSending(false); toast.error(errorText(e)); }
   }, [toast]);
 

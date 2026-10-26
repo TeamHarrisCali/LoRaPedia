@@ -18,8 +18,11 @@ In words:
 1. **Radio listener.** A text message arrives from the radio (or from the UI simulator). It is dropped if it is
    from our own node, a blocked node, a node outside a non-empty allow list, or on the wrong channel. The
    trigger rules decide whether it is a *question*, a *command* (`?help`, `?more`, `?stats`) or noise.
-2. **Rate limit and queue.** Questions are checked against the per-node limit. Over the limit, a "busy, try again
-   in Ns" reply is queued instead. Everything goes onto a single queue, so replies are sent one at a time.
+2. **Rate limit and queue.** Each node gets a number of questions per time window. A question inside the cooldown is
+   not dropped: the limiter *reserves the node's next free slot* (a burst lines up one window apart), the question is
+   held until then, and an acknowledgment says when to expect the answer. A per-node cap and a global cap bound the
+   backlog; past them a "busy" reply is sent. Everything ready goes onto a single queue, so replies leave one at a
+   time. (A setting restores the plain "busy, try again in Ns" behavior.)
 3. **Retriever.** The question is searched in the local index (keyword + vector, fused and reranked).
 4. **LLM.** The top passages and the question are sent to the model with a strict system prompt: answer only from
    the context, no markdown, "not found" if unsupported.
@@ -27,7 +30,12 @@ In words:
 6. **Sender.** The reply goes to the original sender (a direct message, or a channel message prefixed `@Name`)
    with the configured hop limit, with a pause between parts.
 
-If nothing relevant is retrieved, the LLM is not called at all and the reply is "Not found in my offline library."
+If nothing relevant is retrieved (or the model says the context does not answer), the reply depends on how far
+indexing has got. Once every article is searchable (`library_state` is `covered` or `complete`), "no match" is certain,
+so the model is asked once more, with a different prompt and no context, to answer from its own knowledge. The code
+prepends `[AI memory - may be wrong] ` itself, and a model that says "I don't know" gets a plain "not found". While
+indexing is still on pass 1 the reply is "Not found yet" and the model is not consulted, because the article may simply
+not be indexed yet.
 
 ## Components
 
@@ -104,7 +112,9 @@ refuses to send anything over 233 bytes, as a last line of defence.
 
 ## Knowledge base
 
-**Indexing.** `ZimReader` streams HTML entries (skipping redirects and non-HTML). `chunk_article` strips noise
+**Indexing.** The default is two passes over the file. Pass 1 indexes only the first chunk of every article; pass 2 (from
+the same starting point) adds the remaining chunks. `index_state.phase` (`first`, `rest`, `all`) and `rest_from` record
+where an interrupted run stands, so a restart resumes the same pass. `ZimReader` streams HTML entries (skipping redirects and non-HTML). `chunk_article` strips noise
 (infoboxes, citations, navigation, "See also", "References") and produces the lead plus up to five more sections,
 each split at sentence boundaries to about 800 characters. A batch of articles is embedded, then written in one
 transaction **together with a checkpoint** (the last entry id). A crash or a stopped embedder therefore loses at

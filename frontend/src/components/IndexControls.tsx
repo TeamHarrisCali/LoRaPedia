@@ -17,6 +17,7 @@ export function IndexControls({ preferredZim, onDone }: { preferredZim?: string;
   const [zim, setZim] = useState("");
   const [size, setSize] = useState<(typeof SIZES)[number][0]>("all");
   const [leadOnly, setLeadOnly] = useState(false);
+  const [fast, setFast] = useState(true); // two passes: every article's opening first, then the rest
 
   const p = prog.data;
   const active = p?.state === "running" || p?.state === "paused";
@@ -29,7 +30,7 @@ export function IndexControls({ preferredZim, onDone }: { preferredZim?: string;
   async function start() {
     try {
       setRunning(true);
-      await api.post("/api/kb/index/start", { zim, max_articles: size === "all" ? null : Number(size), lead_only: leadOnly });
+      await api.post("/api/kb/index/start", { zim, max_articles: fast || size === "all" ? null : Number(size), lead_only: leadOnly, mode: fast ? "fast" : "all" });
       void prog.reload();
     } catch (e) { setRunning(false); toast.error(errorText(e)); }
   }
@@ -41,13 +42,21 @@ export function IndexControls({ preferredZim, onDone }: { preferredZim?: string;
     <Card>
       <SectionTitle hint="Reads the Wikipedia file and builds the search index. You can answer questions from the part that is done while the rest continues.">Indexing</SectionTitle>
       {!active && (
-        <div className="grid gap-x-6 xl:grid-cols-3">
-          <Field label="Wikipedia file" htmlFor="ix-zim"><select id="ix-zim" className="field" value={zim} onChange={(e) => setZim(e.target.value)}>{lib.data?.map((z) => <option key={z.name} value={z.name}>{z.title || z.name}</option>)}</select></Field>
-          <Field label="How many" htmlFor="ix-size" help="Taken in file order. Start small, expand later.">
-            <select id="ix-size" className="field" value={size} onChange={(e) => setSize(e.target.value as typeof size)}>{SIZES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
-          <Field label="How much of each" htmlFor="ix-detail" help="Lead only is fastest and smallest.">
-            <select id="ix-detail" className="field" value={leadOnly ? "lead" : "key"} onChange={(e) => setLeadOnly(e.target.value === "lead")}><option value="key">Intro + key sections</option><option value="lead">Intro only</option></select></Field>
-        </div>
+        <>
+          <div className="grid gap-x-6 xl:grid-cols-2">
+            <Field label="Wikipedia file" htmlFor="ix-zim"><select id="ix-zim" className="field" value={zim} onChange={(e) => setZim(e.target.value)}>{lib.data?.map((z) => <option key={z.name} value={z.name}>{z.title || z.name}</option>)}</select></Field>
+            <Field label="Order" htmlFor="ix-order" help={fast ? "Pass 1 indexes the opening of every article, so every topic is searchable early. Pass 2 then adds the rest of each article." : "Finishes each article before the next, in alphabetical order, so only the early letters work until it is done."}>
+              <select id="ix-order" className="field" value={fast ? "fast" : "all"} onChange={(e) => setFast(e.target.value === "fast")}><option value="fast">Fast: everything searchable first (recommended)</option><option value="all">Article by article</option></select></Field>
+          </div>
+          {!fast && (
+            <div className="grid gap-x-6 xl:grid-cols-2">
+              <Field label="How many" htmlFor="ix-size" help="Taken in file order, which is alphabetical. Start small, expand later.">
+                <select id="ix-size" className="field" value={size} onChange={(e) => setSize(e.target.value as typeof size)}>{SIZES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
+              <Field label="How much of each" htmlFor="ix-detail" help="Intro only is fastest and smallest.">
+                <select id="ix-detail" className="field" value={leadOnly ? "lead" : "key"} onChange={(e) => setLeadOnly(e.target.value === "lead")}><option value="key">Intro + key sections</option><option value="lead">Intro only</option></select></Field>
+            </div>
+          )}
+        </>
       )}
       {!active && <div className="flex flex-wrap items-center gap-3"><Button variant="primary" icon="play" disabled={!zim} onClick={() => void start()}>{p && p.state !== "idle" && p.zim === zim ? "Start / continue" : "Start indexing"}</Button><Help>Safe to stop at any time; it resumes where it left off.</Help></div>}
 
@@ -55,7 +64,7 @@ export function IndexControls({ preferredZim, onDone }: { preferredZim?: string;
         <div className="mt-4" role="status">
           <div className="mb-1 flex flex-wrap items-center gap-2 text-sm">
             <Badge tone={p.state === "done" ? "teal" : p.state === "error" ? "danger" : "amber"}>{p.state}</Badge>
-            <span className="font-mono text-xs text-muted">{p.zim}</span>
+            <span className="font-mono text-xs text-muted">{p.zim}</span>{p.phase_label && <span className="text-xs text-muted">{p.phase_label}</span>}
             {active && <span className="ml-auto flex gap-1">
               {p.state === "running" ? <Button variant="ghost" icon="pause" onClick={() => void control("pause")}>Pause</Button> : <Button variant="ghost" icon="play" onClick={() => void control("resume")}>Resume</Button>}
               <Button variant="ghost" icon="stop" onClick={() => void control("stop")}>Stop</Button></span>}

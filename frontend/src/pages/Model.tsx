@@ -103,7 +103,7 @@ export function Model() {
               <div key={i} className="space-y-1.5"><Bubble side="out" label={`Answer ${result.parts.length > 1 ? `part ${i + 1}` : ""}`}>{p}</Bubble><ByteMeter bytes={result.bytes[i]} limit={result.byte_limit} /></div>
             ))}
             <p className="text-sm text-muted">
-              {result.latency_s.toFixed(1)}s · {result.chunks.length ? `from ${[...new Set(result.chunks.map((c) => c.title))].join(", ")}` : "nothing relevant found"}{result.compressed && " · compressed once to fit"}
+              {result.latency_s.toFixed(1)}s · {result.chunks.length ? `from ${[...new Set(result.chunks.map((c) => c.title))].join(", ")}` : "nothing relevant found"}{result.compressed && " · compressed once to fit"}{result.fallback && " · from the AI's memory, not Wikipedia"}
             </p>
             {result.raw && result.raw !== result.parts.join(" ") && <details><summary className="cursor-pointer text-sm text-muted">Raw model output before fitting</summary><p className="mt-1 whitespace-pre-wrap rounded-lg border border-line bg-bg p-3 font-mono text-xs">{result.raw}</p></details>}
           </div>

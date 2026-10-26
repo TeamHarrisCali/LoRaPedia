@@ -324,3 +324,184 @@ async def test_a_single_common_word_match_is_not_evidence(zim_path):
     assert (await r.search("big football team", 4))[0].title.startswith("Football team")
     assert (await r.search("big match", 4))[0].title.startswith("Football team")  # both terms present in the text
     assert (await r.search("quasar", 4))[0].title == "Quasar"  # single-term queries are unaffected
+
+
+# ---- two-pass ("fast") indexing ---------------------------------------------------------------
+
+
+def chunk_keys(index):
+    return sorted((r["title"], r["ord"]) for r in index.db.execute("SELECT title, ord FROM chunks"))
+
+
+class Spy(HashEmbedder):
+    """Snapshots the index the first time the second pass starts embedding."""
+
+    def __init__(self, index):
+        super().__init__()
+        self.index, self.snapshot = index, None
+
+    async def embed(self, texts, *, query=False):
+        state = self.index.get_state("sample.zim")
+        if self.snapshot is None and state and state["phase"] == "rest":
+            self.snapshot = {"first": self.index.db.execute("SELECT COUNT(DISTINCT title) FROM chunks WHERE ord=0").fetchone()[0],
+                             "deeper": self.index.db.execute("SELECT COUNT(*) FROM chunks WHERE ord>0").fetchone()[0]}
+        return await super().embed(texts, query=query)
+
+
+async def test_fast_mode_makes_every_article_searchable_before_any_detail_exists(zim_path):
+    index, indexer = fresh(zim_path)
+    spy = Spy(index)
+    indexer.embedder = spy
+    await indexer.run("sample.zim", mode="fast")
+    # When the second pass began: all 12 articles already had their opening chunk, and nothing deeper yet.
+    assert spy.snapshot == {"first": len(ARTICLES), "deeper": 0}
+    assert indexer.progress.state == "done" and index.library_state() == "complete"
+    assert index.get_state("sample.zim")["phase"] == "all"
+
+
+async def test_fast_mode_ends_with_exactly_the_same_index_as_standard_mode(zim_path):
+    a, ia = fresh(zim_path)
+    await ia.run("sample.zim", mode="all")
+    b, ib = fresh(zim_path)
+    await ib.run("sample.zim", mode="fast")
+    assert chunk_keys(a) == chunk_keys(b)
+    assert ib.progress.articles == len(ARTICLES) == ia.progress.articles  # pass 2 adds chunks, not articles
+    assert b.stats()["chunks"] == a.stats()["chunks"]
+
+
+async def test_fast_mode_skips_what_a_standard_run_already_completed(zim_path):
+    index, indexer = fresh(zim_path)
+    await indexer.run("sample.zim", max_articles=4, mode="all")  # e.g. a partial alphabetical run
+    done_before = index.chunk_count()
+    await indexer.run("sample.zim", mode="fast")
+    full, ifull = fresh(zim_path)
+    await ifull.run("sample.zim", mode="all")
+    keys = chunk_keys(index)
+    assert keys == chunk_keys(full) and len(keys) == len(set(keys))  # complete, no duplicates
+    assert index.chunk_count() > done_before and indexer.progress.articles == len(ARTICLES)
+
+
+async def test_an_interrupted_fast_run_resumes_as_fast_even_when_started_as_standard(zim_path):
+    class Flaky(HashEmbedder):
+        calls = 0
+
+        async def embed(self, texts, *, query=False):
+            Flaky.calls += 1
+            if Flaky.calls == 4:
+                raise EmbedError("went away")
+            return await super().embed(texts, query=query)
+
+    index, indexer = fresh(zim_path, Flaky())
+    indexer.BATCH_ARTICLES = 3
+    await indexer.run("sample.zim", mode="fast")
+    assert indexer.progress.state == "error" and index.library_state() == "partial"
+    assert index.get_state("sample.zim")["phase"] in ("first", "rest")
+    healthy = Indexer(index, HashEmbedder())
+    await healthy.run("sample.zim", mode="all")  # asked for "all", but a fast run is unfinished
+    full, ifull = fresh(zim_path)
+    await ifull.run("sample.zim", mode="all")
+    assert chunk_keys(index) == chunk_keys(full)
+    assert healthy.progress.mode == "fast" and index.library_state() == "complete"
+
+
+async def test_progress_describes_the_phase(zim_path):
+    index, indexer = fresh(zim_path)
+    await indexer.run("sample.zim", mode="fast")
+    p = indexer.progress
+    assert p.mode == "fast" and p.phase == "rest" and "Pass 2 of 2" in p.phase_label
+    assert p.entries_done == p.entries_total  # per-phase progress ends at 100%
+
+
+def test_library_state(zim_path):
+    index = Index()
+    assert index.library_state() == "none"
+    reader = ZimReader(str(zim_path))
+    index.add_zim("sample.zim", str(zim_path), "S", reader.entry_count, 12)
+    assert index.library_state() == "none"  # in the library, nothing indexed
+
+
+async def test_library_state_is_partial_until_everything_is_done(zim_path):
+    index, indexer = fresh(zim_path)
+    await indexer.run("sample.zim", max_articles=3)
+    assert index.library_state() == "complete"  # a deliberate subset run finished: nothing more is coming
+    index2, indexer2 = fresh(zim_path)
+    index2.set_status("sample.zim", "running")
+    index2.update_state("sample.zim", phase="first")
+    index2.ensure_vec("hash-384", 384)
+    index2.add_batch("sample.zim", [(1, "T", "", 0, "t", [0.1] * 384)], last_entry=1, articles=1)
+    assert index2.library_state() == "partial"  # pass 1 still running: not every article has been seen
+    index2.update_state("sample.zim", phase="rest")
+    assert index2.library_state() == "covered"  # pass 1 done: every topic is findable, details still arriving
+    index2.update_state("sample.zim", phase="all")
+    index2.set_status("sample.zim", "done")
+    assert index2.library_state() == "complete"
+
+
+def test_old_databases_are_migrated(tmp_path):
+    import sqlite3
+    old = sqlite3.connect(tmp_path / "old.db")
+    old.executescript("CREATE TABLE index_state (zim TEXT PRIMARY KEY, last_entry INTEGER NOT NULL DEFAULT -1, "
+                      "articles INTEGER NOT NULL DEFAULT 0, chunks INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'idle', "
+                      "params TEXT NOT NULL DEFAULT '{}', error TEXT, updated REAL); "
+                      "INSERT INTO index_state(zim, last_entry, articles, chunks, status) VALUES ('x.zim', 500, 40, 160, 'running');")
+    old.commit(); old.close()
+    ix = Index(tmp_path / "old.db")
+    state = ix.get_state("x.zim")
+    assert (state["phase"], state["rest_from"], state["last_entry"], state["articles"]) == ("all", 0, 500, 40)  # data kept
+
+
+def test_api_fast_mode_reports_phase(tmp_path, zim_path):
+    opts = {"port_lister": lambda: [], "poll_s": 60}
+    with TestClient(create_app(str(tmp_path), llm=MockLLM(), embedder=HashEmbedder(), radio_options=opts)) as c:
+        c.post("/api/kb/library/import", json={"path": str(zim_path)})
+        c.post("/api/kb/index/start", json={"zim": "sample.zim"})  # fast is the default
+        for _ in range(200):
+            st = c.get("/api/kb/index/status").json()
+            if st["state"] == "done":
+                break
+            time.sleep(0.02)
+        assert st["state"] == "done" and st["mode"] == "fast" and st["articles"] == len(ARTICLES)
+
+
+async def test_resuming_does_not_make_progress_look_like_it_restarted(zim_path):
+    class Flaky(HashEmbedder):
+        calls = 0
+
+        async def embed(self, texts, *, query=False):
+            Flaky.calls += 1
+            if Flaky.calls == 4:  # probe, two batches, then fail partway through pass 1
+                raise EmbedError("went away")
+            return await super().embed(texts, query=query)
+
+    index, indexer = fresh(zim_path, Flaky())
+    indexer.BATCH_ARTICLES = 3
+    await indexer.run("sample.zim", mode="fast")
+    assert indexer.progress.state == "error"
+    done_before_failure = indexer.progress.entries_done
+    assert done_before_failure > 0
+
+    class Spy2(HashEmbedder):
+        def __init__(self, indexer):
+            super().__init__()
+            self.indexer, self.seen = indexer, None
+
+        async def embed(self, texts, *, query=False):
+            if self.seen is None and len(texts) > 1:
+                self.seen = (self.indexer.progress.entries_done, self.indexer.progress.entries_total)
+            return await super().embed(texts, query=query)
+
+    healthy = Indexer(index, HashEmbedder())
+    healthy.embedder = Spy2(healthy)
+    healthy.BATCH_ARTICLES = 3
+    await healthy.run("sample.zim", mode="fast")
+    done, total = healthy.embedder.seen
+    assert done >= done_before_failure and total == indexer.progress.entries_total  # carried on, not back to zero
+
+
+async def test_a_library_file_that_was_never_indexed_does_not_block_the_fallback(zim_path, tmp_path):
+    index, indexer = fresh(zim_path)
+    await indexer.run("sample.zim", mode="fast")
+    assert index.library_state() == "complete"
+    extra = make_sample_zim(tmp_path / "other.zim")
+    index.add_zim("other.zim", str(extra), "Other", 12, 12)  # in the library, never indexed
+    assert index.library_state() == "complete"  # unindexed files are not part of the searchable library
