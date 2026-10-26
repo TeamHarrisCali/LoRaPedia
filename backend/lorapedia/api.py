@@ -131,7 +131,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         try:
             reader = ZimReader(str(path))
             title = reader.metadata("Title", path.stem)
-            index.add_zim(path.name, str(path.resolve()), title, reader.entry_count, reader.article_count)
+            index.add_zim(path.name, str(path.resolve()), title, reader.entry_count, reader.estimate_articles())
         except Exception as exc:
             raise HTTPException(400, f"'{path}' is not a readable ZIM file ({exc.__class__.__name__}).") from exc
         return index.get_zim(path.name)
@@ -147,23 +147,33 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         if path.name in installs:  # a one-click package: index it straight away
             asyncio.create_task(finish_install(path.name))
 
+    def retire(names: list[str]) -> None:
+        """Drop library entries and their index rows. Delete a file only if it is a Wikipedia package that
+        LoRaPedia downloaded into its own zim folder; anything else (sample, the user's files) is kept."""
+        for old in names:
+            zim = index.get_zim(old)
+            if not zim:
+                continue
+            index.remove_zim(old)
+            old_path = Path(zim["path"])
+            if packages.package_for_filename(old) and old_path.parent == (data / "zim").resolve() and old_path.exists():
+                old_path.unlink()
+
     async def finish_install(name: str) -> None:
-        """Index a freshly downloaded package, then (if asked) retire the packages it replaces."""
+        """Index a freshly downloaded package, then retire what it replaces."""
         try:
             while indexer.progress.state in ("running", "paused"):  # one indexing job at a time
                 await asyncio.sleep(1)
             indexer.embedder = current_embedder()
+            old = installs[name]["replace"]
+            # One vector table holds one embedder's vectors, so an index built differently must go first.
+            rebuild = index.embedder_name() not in (None, indexer.embedder.name)
+            if rebuild:
+                retire(old)
             indexer.start(name, max_articles=None, lead_only=False)
             await indexer.wait()
-            if indexer.progress.state != "done":
-                return  # keep the old package serving; the error is visible on the Knowledge page
-            for old in installs[name]["replace"]:
-                zim = index.get_zim(old)
-                if zim:
-                    index.remove_zim(old)
-                    old_path = Path(zim["path"])
-                    if old_path.parent == (data / "zim").resolve() and old_path.exists():
-                        old_path.unlink()  # only ever files LoRaPedia itself downloaded into its zim folder
+            if indexer.progress.state == "done" and not rebuild:
+                retire(old)  # keep the old package serving until the new one is fully ready
         except Exception:
             logging.getLogger(__name__).exception("finishing install of %s failed", name)
 
@@ -535,8 +545,16 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         if free_mb < need_mb:
             raise HTTPException(400, f"Not enough disk space: {pkg['name']} needs about {need_mb / 1000:.1f} GB "
                                      f"(including its search index) and {free_mb / 1000:.1f} GB is free.")
+        built_with = index.embedder_name()
+        rebuild = built_with is not None and built_with != current_embedder().name
+        if rebuild and not body.replace:
+            raise HTTPException(409, f"Your search index was built with '{built_with}' but you now use "
+                                     f"'{current_embedder().name}'. Installing means rebuilding the index from "
+                                     "scratch (your files are not deleted). Confirm to rebuild and install.")
         replace = []
-        if body.replace:
+        if rebuild:
+            replace = [z["name"] for z in index.list_zims()]  # everything must be re-indexed with the new embedder
+        elif body.replace:
             replace = [z["name"] for z in index.list_zims() if packages.package_for_filename(z["name"])]
         installs[info["filename"]] = {"package": pkg["id"], "replace": replace}
         try:

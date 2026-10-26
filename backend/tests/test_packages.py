@@ -164,3 +164,33 @@ def test_unknown_package_and_download_errors(tmp_path, zim_bytes):
         c.post("/api/kb/packages/quick/install", json={})
         p = wait_for(c, "quick", "error")
         assert "404" in p["detail"]
+
+
+def test_install_over_an_index_built_with_another_embedder_asks_then_rebuilds(tmp_path, zim_bytes):
+    class Other(HashEmbedder):
+        def __init__(self):
+            super().__init__(dim=128)  # a different embedder from the one the sample was indexed with
+
+    app = create_app(str(tmp_path), llm=MockLLM(), embedder=HashEmbedder(),
+                     radio_options={"port_lister": lambda: [], "poll_s": 60, "http_transport": fake_kiwix(zim_bytes)})
+    with TestClient(app) as c:
+        c.post("/api/kb/sample")
+        c.post("/api/kb/index/start", json={"zim": "sample.zim"})
+        for _ in range(100):
+            if c.get("/api/kb/index/status").json()["state"] == "done":
+                break
+            time.sleep(0.03)
+        assert c.get("/api/kb/stats").json()["embedder"] == "hash-384"
+
+    # Restart with a different embedder: the user switched embedding model.
+    app2 = create_app(str(tmp_path), llm=MockLLM(), embedder=Other(),
+                      radio_options={"port_lister": lambda: [], "poll_s": 60, "http_transport": fake_kiwix(zim_bytes)})
+    with TestClient(app2) as c:
+        asked = c.post("/api/kb/packages/quick/install", json={})
+        assert asked.status_code == 409 and "rebuild" in asked.json()["detail"] and "hash-384" in asked.json()["detail"]
+        assert c.get("/api/kb/downloads").json() == []  # nothing downloaded until confirmed
+        assert c.post("/api/kb/packages/quick/install", json={"replace": True}).status_code == 200
+        wait_for(c, "quick", "ready")
+        assert [z["name"] for z in c.get("/api/kb/library").json()] == ["wikipedia_en_top_mini_2026-09.zim"]
+        assert c.get("/api/kb/stats").json()["embedder"] == "hash-128"
+        assert (tmp_path / "zim" / "sample.zim").exists()  # the sample file itself is kept

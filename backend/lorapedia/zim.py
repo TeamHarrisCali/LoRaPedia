@@ -161,6 +161,20 @@ class ZimReader:
     def article_count(self) -> int:
         return self.archive.article_count
 
+    def estimate_articles(self, sample: int = 1500) -> int:
+        """Real (non-redirect, HTML) article count. libzim's own `article_count` includes redirects, which can be
+        over 90% of a Wikipedia ZIM, so this counts exactly for small files and samples evenly for large ones."""
+        total = self.archive.entry_count
+        if total == 0:
+            return 0
+        ids = range(total) if total <= sample else [total * i // sample for i in range(sample)]
+        hits = 0
+        for i in ids:
+            entry = self.archive._get_entry_by_id(i)
+            if not entry.is_redirect and entry.get_item().mimetype.startswith("text/html"):
+                hits += 1
+        return hits if total <= sample else round(hits / sample * total)
+
     def metadata(self, key: str, default: str = "") -> str:
         try:
             return self.archive.get_metadata(key).decode("utf-8", "replace")

@@ -249,7 +249,7 @@ class Indexer:
             p.articles, p.chunks, p.entries_total = state["articles"], state["chunks"], reader.entry_count
             p.entries_done = start
             it = reader.articles(start)
-            t0, done_at_start = time.monotonic(), start
+            t0, done_at_start, articles_at_start = time.monotonic(), start, p.articles
             exhausted = False
             while not exhausted:
                 await self._gate.wait()  # blocks here while paused
@@ -271,9 +271,11 @@ class Indexer:
                     self.index.db.commit()
                     p.entries_done = reader.entry_count
                 elapsed = max(time.monotonic() - t0, 1e-6)
-                p.articles_per_s = round((p.entries_done - done_at_start) / elapsed, 2)
+                # Most ZIM entries are redirects, so articles/s and the ETA (which walks entries) differ.
+                p.articles_per_s = round((p.articles - articles_at_start) / elapsed, 2)
+                entries_per_s = (p.entries_done - done_at_start) / elapsed
                 remaining = p.entries_total - p.entries_done
-                p.eta_s = round(remaining / p.articles_per_s) if p.articles_per_s and remaining > 0 else 0
+                p.eta_s = round(remaining / entries_per_s) if entries_per_s and remaining > 0 else 0
                 await asyncio.sleep(0)  # let the API/worker breathe between batches
             p.state = "done" if not self._stop else "idle"
             self.index.set_status(zim_name, "done" if not self._stop else "stopped")

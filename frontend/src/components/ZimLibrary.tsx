@@ -44,7 +44,7 @@ export function ZimLibrary({ onChanged }: { onChanged?: () => void }) {
             <li key={z.name} className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-bg p-3">
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{z.title || z.name}</p>
-                <p className="truncate font-mono text-xs text-muted">{z.name} · {z.articles.toLocaleString()} articles in file</p>
+                <p className="truncate font-mono text-xs text-muted">{z.name} · about {z.articles.toLocaleString()} articles in file</p>
                 <p className="text-xs text-muted">{z.indexed_articles > 0 ? `${z.indexed_articles.toLocaleString()} indexed (${z.indexed_chunks.toLocaleString()} chunks), last ${timeAgo(z.last_indexed)}` : "Not indexed yet"}</p>
                 {z.error && <p className="text-xs text-danger" role="alert">{z.error}</p>}
               </div>

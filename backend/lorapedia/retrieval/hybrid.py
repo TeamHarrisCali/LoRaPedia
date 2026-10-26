@@ -70,6 +70,12 @@ class HybridRetriever:
             text_words = {_stem(w) for w in _WORD.findall(row["text"].lower())} | title_words
             title_hit = len(qstems & title_words) / len(qstems)
             coverage = len(qstems & text_words) / len(qstems)
+            # A keyword-only hit (no vector support) matching half or fewer of a multi-word question is noise,
+            # e.g. "how big is Antarctica" matching "big" in football pages. Without embeddings we cannot
+            # tell, so this only applies when the vector side is working.
+            vec_supported = vec_cos.get(cid, 0.0) >= MIN_VEC_COS
+            if vec_hits and not vec_supported and len(qstems) >= 2 and title_hit == 0 and coverage <= 0.5:
+                continue
             # Rerank: fused rank (scaled to ~0..2) + title match + query-term coverage + lead bonus.
             score = rrf * RRF_K + 1.0 * title_hit + 0.5 * coverage + (0.15 if row["ord"] == 0 else 0.0)
             scored.append((score, cid, {"fts_rank": fts_rank.get(cid), "vec_rank": vec_rank.get(cid),

@@ -255,3 +255,72 @@ def test_api_knowledge_base_flow(tmp_path, zim_path):
 async def asyncio_sleep(t: float = 0.0):
     import asyncio
     await asyncio.sleep(t)
+
+
+def _zim_with_redirects(path, articles: int, redirects: int):
+    from libzim.writer import Creator, Hint, Item, StringProvider
+
+    class A(Item):
+        def __init__(self, n):
+            super().__init__()
+            self.n = n
+
+        def get_path(self): return f"A{self.n}"
+        def get_title(self): return f"Article {self.n}"
+        def get_mimetype(self): return "text/html"
+        def get_contentprovider(self): return StringProvider(f"<html><body><p>Article number {self.n}.</p></body></html>")
+        def get_hints(self): return {Hint.FRONT_ARTICLE: True}
+
+    with Creator(str(path)).config_indexing(False, "eng") as c:
+        c.set_mainpath("A0")
+        for n in range(articles):
+            c.add_item(A(n))
+        for r in range(redirects):
+            c.add_redirection(f"R{r}", f"Redirect {r}", f"A{r % articles}", {Hint.FRONT_ARTICLE: True})  # as in Kiwix files, where redirects are listed as articles
+        for k, v in (("Title", "t"), ("Language", "eng"), ("Creator", "x"), ("Publisher", "x"), ("Description", "d"),
+                     ("Name", "n"), ("Date", "2026-01-01")):
+            c.add_metadata(k, v)
+    return path
+
+
+def test_estimate_articles_ignores_redirects_exactly_for_small_files(tmp_path):
+    reader = ZimReader(str(_zim_with_redirects(tmp_path / "small.zim", articles=20, redirects=180)))
+    assert reader.estimate_articles() == 20
+    assert reader.article_count > 100  # libzim's own figure counts the redirects: the reason this exists
+
+
+def test_estimate_articles_samples_large_files(tmp_path):
+    reader = ZimReader(str(_zim_with_redirects(tmp_path / "big.zim", articles=300, redirects=2700)))
+    assert 240 <= reader.estimate_articles() <= 360  # true value 300, from a 1500-entry sample of 3000
+
+
+def test_library_reports_real_article_count_not_the_redirect_inflated_one(tmp_path):
+    from fastapi.testclient import TestClient
+    zim = _zim_with_redirects(tmp_path / "w.zim", articles=15, redirects=135)
+    opts = {"port_lister": lambda: [], "poll_s": 60}
+    with TestClient(create_app(str(tmp_path / "d"), llm=MockLLM(), embedder=HashEmbedder(), radio_options=opts)) as c:
+        assert c.post("/api/kb/library/import", json={"path": str(zim)}).json()["articles"] == 15
+
+
+async def test_progress_reports_articles_per_second_separately_from_entries(tmp_path):
+    index, indexer = fresh(_zim_with_redirects(tmp_path / "p.zim", articles=10, redirects=90))
+    await indexer.run("sample.zim")
+    p = indexer.progress
+    assert p.state == "done" and p.articles == 10 and p.entries_total >= 100 and p.eta_s == 0
+    assert p.articles_per_s > 0
+
+
+async def test_a_single_common_word_match_is_not_evidence(zim_path):
+    """"how big is Antarctica": only "big" matches anything indexed, so nothing relevant should come back."""
+    index, indexer = fresh(zim_path)
+    await indexer.run("sample.zim")
+    emb = indexer.embedder
+    rows = [(900 + i, f"Football team {i}", "", 0, "A big win for the team in a big match.", (await emb.embed(["a big win football"]))[0])
+            for i in range(3)]
+    index.add_batch("sample.zim", rows, last_entry=999, articles=3)
+    r = HybridRetriever(index, emb)
+    assert await r.search("how big is antarctica", 4) == []
+    # ...but a title match, or matching every term, still counts:
+    assert (await r.search("big football team", 4))[0].title.startswith("Football team")
+    assert (await r.search("big match", 4))[0].title.startswith("Football team")  # both terms present in the text
+    assert (await r.search("quasar", 4))[0].title == "Quasar"  # single-term queries are unaffected

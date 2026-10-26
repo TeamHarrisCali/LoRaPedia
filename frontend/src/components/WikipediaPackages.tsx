@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, errorText } from "../lib/api";
+import { api, ApiError, errorText } from "../lib/api";
 import { useToast } from "../lib/toast";
 import type { WikiPackage } from "../lib/types";
 import { usePoll } from "../lib/usePoll";
@@ -26,7 +26,11 @@ export function WikipediaPackages({ onChanged }: { onChanged?: () => void }) {
     try { await api.post(`/api/kb/packages/${p.id}/install`, { replace }); await pk.reload(); onChanged?.(); }
     catch (e) {
       const msg = errorText(e);
-      toast.error(msg, /mbedding/.test(msg) ? [{ label: "Open Model page", run: () => nav("/model") }] : undefined);
+      if (e instanceof ApiError && e.status === 409 && /rebuild/.test(msg)) {
+        toast.error(msg, [{ label: "Rebuild and install", run: () => void install(p, true) }]); // the index must be rebuilt: ask first
+      } else {
+        toast.error(msg, /mbedding/.test(msg) ? [{ label: "Open Model page", run: () => nav("/model") }] : undefined);
+      }
     } finally { setBusy(null); }
   }
   const control = (p: WikiPackage, a: "pause" | "resume" | "cancel") =>
