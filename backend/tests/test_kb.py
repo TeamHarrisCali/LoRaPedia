@@ -100,9 +100,11 @@ async def test_pause_and_resume(zim_path):
     await asyncio_sleep()
     indexer.pause()
     assert indexer.progress.state == "paused"
+    # Pause takes effect at the next batch boundary: a batch already in flight is allowed to finish first.
+    await asyncio_sleep(0.2)
     frozen = index.chunk_count()
-    await asyncio_sleep(0.05)
-    assert index.chunk_count() == frozen  # nothing advances while paused
+    await asyncio_sleep(0.2)
+    assert index.chunk_count() == frozen  # once settled, nothing advances while paused
     indexer.resume()
     await indexer.wait()
     assert indexer.progress.state == "done" and indexer.progress.articles == len(ARTICLES)

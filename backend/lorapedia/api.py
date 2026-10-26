@@ -30,6 +30,7 @@ from .radio.meshtastic_radio import RadioError
 from .retrieval.hybrid import RoutingRetriever
 from .sample import make_sample_zim
 from .store import Store
+from .updates import UpdateError, UpdateService
 from .zim import ZimReader
 
 
@@ -80,6 +81,9 @@ class IndexStart(BaseModel):
     mode: str = "fast"  # "fast": opening chunk of every article first, then the rest. "all": article by article
 
 
+_NON_RADIO_OPTIONS = {"http_transport", "github_transport", "updater_transport", "environ"}
+
+
 def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | None = None,
                radio_options: dict | None = None) -> FastAPI:
     """`llm` / `embedder` / `radio_options` override the configured backends (used by tests and demos)."""
@@ -114,6 +118,8 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     configured_llm = _ConfiguredLLM()
 
     async def broadcast(event: dict) -> None:
+        if event.get("type") in ("query", "rx"):
+            updates.touch()  # an update waits until the node has been quiet for a while
         for ws in list(sockets):
             try:
                 await ws.send_json(event)
@@ -123,7 +129,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     retriever = RoutingRetriever(index, current_embedder)
     engine: Engine  # created below; the radio manager submits received packets to it
     radio = RadioManager(settings=settings, submit=lambda pkt: engine.submit(pkt), emit=broadcast,
-                         **{k: v for k, v in (radio_options or {}).items() if k != "http_transport"})
+                         **{k: v for k, v in (radio_options or {}).items() if k not in _NON_RADIO_OPTIONS})
     engine = Engine(settings=settings, radio=radio, sim_radio=radio.sim, llm=configured_llm,
                     retriever=retriever, store=store, emit=broadcast, library_state=index.library_state)
     indexer = Indexer(index, current_embedder())
@@ -181,17 +187,36 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     downloader = Downloader(data / "zim", on_done=on_download_done, transport=(radio_options or {}).get("http_transport"))
     pulls = PullManager(transport=(radio_options or {}).get("http_transport"))
 
+    def busy_reason() -> str | None:
+        """Why an automatic update must wait (None = the node is quiet)."""
+        if engine.pending_count:
+            return "questions are waiting to be answered"
+        if indexer.progress.state in ("running", "paused"):
+            return "the Wikipedia index is being built"
+        if any(j.state == "running" for j in downloader.jobs.values()):
+            return "a download is running"
+        if any(j["state"] == "running" for j in pulls.jobs.values()):
+            return "a model is being downloaded"
+        return None
+
+    opts = radio_options or {}
+    updates = UpdateService(store=store, settings=settings, data_dir=data, busy=busy_reason,
+                            transport=opts.get("github_transport"), updater_transport=opts.get("updater_transport"),
+                            environ=opts.get("environ"))
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         worker = asyncio.create_task(engine.run_worker())
         radio.start()
+        updates.start()
         yield
         indexer.stop()
         worker.cancel()
+        updates.stop()
         await radio.stop()
 
     app = FastAPI(title="LoRaPedia", lifespan=lifespan)
-    app.state.engine, app.state.index, app.state.indexer, app.state.radio = engine, index, indexer, radio
+    app.state.engine, app.state.index, app.state.indexer, app.state.radio, app.state.updates = engine, index, indexer, radio, updates
 
     # ---- status / settings --------------------------------------------------------------
 
@@ -563,6 +588,26 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         except DownloadError as exc:
             raise HTTPException(400, str(exc)) from exc
         return {**package_state(pkg), "version": info["version"], "size_mb": info["size_mb"], "source": info["source"]}
+
+    # ---- app updates (GitHub releases; applied by the separate updater container) -----------------
+
+    @app.get("/api/updates/status")
+    async def updates_status():
+        return await updates.status()
+
+    @app.post("/api/updates/check")
+    async def updates_check():
+        """The "Check now" button: always allowed, even with the periodic check off."""
+        result = await updates.check(manual=True)
+        return {**await updates.status(), "result": result}
+
+    @app.post("/api/updates/apply")
+    async def updates_apply():
+        """Takes no parameters: the updater decides what to install from GitHub itself and verifies its signature."""
+        try:
+            return await updates.apply(who="user")
+        except UpdateError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     # ---- live feed ----------------------------------------------------------------------
 

@@ -1,15 +1,32 @@
 version: 2
+# Keeps pinned action SHAs, base-image digests and dependencies current as reviewable pull requests.
+# Major-version jumps (React 19, Router 7, a new Python or Node line) are NOT proposed automatically: they are deliberate
+# upgrades, done by hand. Minor and patch updates arrive grouped, one pull request per ecosystem.
 updates:
-  # Keeps the pinned action SHAs, base-image digests and dependencies current, as reviewable pull requests.
   - package-ecosystem: github-actions
     directory: /
     schedule: {interval: weekly}
+    groups:
+      actions: {patterns: ["*"]}
   - package-ecosystem: docker
     directory: /docker
     schedule: {interval: weekly}
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]   # base images stay on the tested tag; digests still refresh
   - package-ecosystem: pip
     directory: /backend
     schedule: {interval: weekly}
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      python-deps: {patterns: ["*"]}
   - package-ecosystem: npm
     directory: /frontend
     schedule: {interval: weekly}
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      frontend-deps: {patterns: ["*"]}

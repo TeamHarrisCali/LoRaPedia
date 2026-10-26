@@ -47,6 +47,12 @@ class Settings(BaseModel):
     rate_limit_window_s: int = Field(60, ge=1)
     queue_max: int = Field(20, ge=1)
 
+    # Updates (Settings -> Updates). The checks are the only things LoRaPedia does online without being asked.
+    update_check: bool = True           # look for a new LoRaPedia release on GitHub about once a day
+    auto_update: bool = True            # apply it when the node is quiet (Docker installs with the updater only)
+    wikipedia_update_check: bool = True    # look for a newer edition of each installed Wikipedia package
+    wikipedia_auto_update: bool = True     # download and index it when the disk allows and the node is quiet
+
     # Models. Defaults assume a local Ollama; any OpenAI-compatible server works for the LLM.
     llm_backend: Literal["openai", "mock"] = "openai"  # "mock" = no model, for demos/UI testing
     llm_base_url: str = f"{OLLAMA_URL}/v1"

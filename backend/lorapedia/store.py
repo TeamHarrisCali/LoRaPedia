@@ -75,6 +75,20 @@ class Store:
             out.append(d)
         return out
 
+    def backup_to(self, dest: str | Path) -> None:
+        """A consistent copy of the database, safe to take while the app is running (SQLite's online backup)."""
+        out = sqlite3.connect(str(dest))
+        try:
+            with self._lock:
+                self._db.backup(out)
+        finally:
+            out.close()
+
+    def last_query_ts(self) -> float | None:
+        with self._lock:
+            row = self._db.execute("SELECT MAX(ts) AS t FROM queries").fetchone()
+        return row["t"]
+
     def get_json(self, key: str, default=None):
         with self._lock:
             row = self._db.execute("SELECT v FROM kv WHERE k=?", (key,)).fetchone()
