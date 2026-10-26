@@ -5,7 +5,7 @@
 # ---- Stage 1: build the web UI (runs on the build machine's own architecture, so no emulation) ------------------
 # buildx sets BUILDPLATFORM itself; the default only matters for the classic builder, which does not.
 ARG BUILDPLATFORM=linux/amd64
-FROM --platform=$BUILDPLATFORM node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS ui
+FROM --platform=$BUILDPLATFORM node:26-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS ui
 WORKDIR /ui
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
