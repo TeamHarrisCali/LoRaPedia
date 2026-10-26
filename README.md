@@ -266,4 +266,5 @@ Where the build departs from the original brief or chose a default for something
 
 ## License
 
-No license has been chosen yet. Add a `LICENSE` file before sharing the code.
+[MIT](LICENSE). Third-party software and Wikipedia content have their own licenses: Wikipedia text is
+CC BY-SA, and ZIM files carry the license of their source.
