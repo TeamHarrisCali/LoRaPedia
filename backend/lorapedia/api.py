@@ -23,6 +23,7 @@ from .llm.base import MockLLM
 from .llm.openai_compat import OpenAICompatLLM
 from .radio.base import Packet
 from .radio.manager import RadioManager
+from .radio.meshtastic_radio import RadioError
 from .retrieval.hybrid import RoutingRetriever
 from .sample import make_sample_zim
 from .store import Store
@@ -39,6 +40,11 @@ class SimMessage(BaseModel):
 
 class ImportZim(BaseModel):
     path: str
+
+
+class RadioTest(BaseModel):
+    to: str  # a node id the radio has heard, e.g. "!43b6e454"
+    text: str
 
 
 class NodeToggle(BaseModel):
@@ -187,6 +193,22 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         state["settings"] = put
         store.save_settings(put)
         return await radio.retry()
+
+    @app.post("/api/radio/test-send")
+    async def radio_test_send(body: RadioTest):
+        """Send one direct message to a known node, to prove the radio can transmit. Never broadcasts."""
+        if radio.active != "meshtastic":
+            raise HTTPException(400, "No real radio is connected, so there is nothing to transmit with.")
+        if body.to not in {n["id"] for n in radio.nodes()} or body.to == radio.node_id:
+            raise HTTPException(400, "Pick another node this radio has heard (see the Nodes list on the Radio page).")
+        s = settings()
+        if fitter.byte_len(body.text) > s.byte_limit:
+            raise HTTPException(400, f"That is {fitter.byte_len(body.text)} bytes; the limit is {s.byte_limit}.")
+        try:
+            await radio.send_text(body.text, body.to, s.channel_index, s.hop_limit)
+        except RadioError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        return {"sent": True, "to": body.to, "bytes": fitter.byte_len(body.text)}
 
     @app.get("/api/radio/ports")
     async def radio_ports():

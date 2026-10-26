@@ -258,8 +258,10 @@ Where the build departs from the original brief or chose a default for something
 
 ## Limitations
 
-- Tested against a fake radio and a 12-article sample file, plus a real local Ollama. **Not yet tested on a real
-  Meshtastic device or a full Wikipedia dump**, so indexing speed on the large files is unmeasured.
+- Verified on one real radio: a **RAK4631 over USB** exchanged a direct message with a phone-connected node and the
+  answer came back (about 1.5 s with a local 3B model). Network and Bluetooth connections, other devices, and
+  channel-mode replies are only tested against a fake radio. A full Wikipedia dump has **not** been indexed, so
+  indexing speed on the large files is unmeasured.
 - Semantic (embedding) search was not exercised against a real embedding model; keyword and hybrid logic were.
 - English Wikipedia only has been considered; other languages should work if the ZIM is HTML but are untried.
 - One radio at a time.

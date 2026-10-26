@@ -67,6 +67,14 @@ use `./run.sh`.
 2. Send a question: `what is a quasar?`
 3. Watch **Live Feed** in LoRaPedia: the question appears, then the answer.
 
+To check that the radio can transmit at all, without involving a model, send a direct message to a node it has
+heard (it refuses broadcasts and unknown nodes):
+
+```bash
+curl -X POST localhost:8000/api/radio/test-send -H 'content-type: application/json' \
+  -d '{"to": "!a1b2c3d4", "text": "hello from LoRaPedia"}'
+```
+
 If nothing arrives, see the troubleshooting table in the [README](../README.md#troubleshooting). The most common
 reasons: the question was sent to a channel while the node is in direct-message mode, or the two devices are
 on different channel keys.

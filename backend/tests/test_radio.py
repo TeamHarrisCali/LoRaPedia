@@ -445,3 +445,19 @@ def test_api_without_a_device_defaults_to_simulator_with_actionable_error(tmp_pa
     with TestClient(create_app(str(tmp_path), llm=MockLLM(), embedder=HashEmbedder(), radio_options=opts)) as client:
         st = client.post("/api/radio/retry").json()
         assert st["active"] == "simulator" and st["error"] == NO_RADIO
+
+
+def test_api_test_send_is_direct_known_nodes_only_and_within_the_limit(tmp_path):
+    fake = FakeIface()
+    opts = {"factory": lambda spec: fake, "port_lister": lambda: ["/dev/ttyACM0"], "poll_s": 60}
+    with TestClient(create_app(str(tmp_path), llm=MockLLM(), embedder=HashEmbedder(), radio_options=opts)) as c:
+        c.post("/api/radio/retry")
+        ok = c.post("/api/radio/test-send", json={"to": "!a1b2c3d4", "text": "link test"})
+        assert ok.json() == {"sent": True, "to": "!a1b2c3d4", "bytes": 9}
+        assert fake.sent == [dict(text="link test", to="!a1b2c3d4", ack=True, channel=0, hops=3)]
+        for bad in ("^all", "!deadbeef", "!1234abcd"):  # broadcast, never-heard node, ourselves
+            assert c.post("/api/radio/test-send", json={"to": bad, "text": "x"}).status_code == 400
+        assert c.post("/api/radio/test-send", json={"to": "!a1b2c3d4", "text": "x" * 201}).status_code == 400
+        assert len(fake.sent) == 1  # nothing else went out
+        c.post("/api/radio/use-simulator")
+        assert c.post("/api/radio/test-send", json={"to": "!a1b2c3d4", "text": "x"}).status_code == 400
