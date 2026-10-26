@@ -132,7 +132,7 @@ class Engine:
         latency = round(self._clock() - started, 2)
         entry = dict(
             sender_id=job.packet.sender_id, sender_name=job.packet.sender_name, question=job.question,
-            parts=parts, byte_limit=s.byte_limit, latency_s=latency, sources=[c.title for c in chunks],
+            parts=parts, byte_limit=s.byte_limit, latency_s=latency, sources=list(dict.fromkeys(c.title for c in chunks)),  # unique, best first
             debug={"prompt": prompt, "compressed": compressed,
                    "chunks": [{"title": c.title, "text": c.text, "score": c.score} for c in chunks]},
         )

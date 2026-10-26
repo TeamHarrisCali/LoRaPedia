@@ -1,0 +1,75 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/fraunces";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* Colour tokens. Dark is the default; light is the "paper" theme. Both meet WCAG AA for text. */
+:root, [data-theme="dark"] {
+  --bg: #0f1412;
+  --surface: #171e1b;
+  --raised: #1e2824;
+  --line: #26312c;
+  --ink: #e8edea;
+  --muted: #8fa096;
+  --amber: #ffb020;       /* fills: buttons, meters, active states */
+  --amber-on: #1b1405;    /* text on an amber fill */
+  --amber-text: #ffb020;  /* amber used as text/outline */
+  --teal: #2dd4bf;
+  --danger: #f2545b;
+  color-scheme: dark;
+}
+[data-theme="light"] {
+  --bg: #f6f3ea;
+  --surface: #fbf9f2;
+  --raised: #efebdd;
+  --line: #d6d0bc;
+  --ink: #1b2420;
+  --muted: #566359;
+  --amber: #ffb020;
+  --amber-on: #1b1405;
+  --amber-text: #8a5700;
+  --teal: #0b6b62;
+  --danger: #b8232b;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-amber: var(--amber);
+  --color-amber-on: var(--amber-on);
+  --color-amber-text: var(--amber-text);
+  --color-teal: var(--teal);
+  --color-danger: var(--danger);
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Fraunces Variable", Georgia, serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+}
+
+html { background: var(--bg); }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { font-family: var(--font-serif); letter-spacing: -0.01em; }
+
+:focus-visible { outline: 2px solid var(--amber-text); outline-offset: 2px; border-radius: 4px; }
+
+/* Radio dot pulses once when a packet arrives (remounted via key). */
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--teal) 70%, transparent); } 100% { box-shadow: 0 0 0 10px transparent; } }
+.pulse { animation: pulse-ring 900ms ease-out 1; }
+@keyframes caret { 50% { opacity: 0; } }
+.caret::after { content: "\2588"; margin-left: 1px; color: var(--amber-text); animation: caret 1s steps(1) infinite; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.toast-in { animation: toast-in 180ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+}
+
+/* Form controls share one look. */
+.field { background: var(--bg); border: 1px solid var(--line); color: var(--ink); border-radius: 8px; padding: 0.5rem 0.75rem; width: 100%; }
+.field:disabled { opacity: 0.55; }
+input[type="range"] { accent-color: var(--amber); width: 100%; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--amber); }

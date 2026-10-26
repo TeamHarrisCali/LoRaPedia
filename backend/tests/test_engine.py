@@ -55,6 +55,15 @@ async def test_dm_question_gets_single_reply_within_limit():
     assert "quasar" in sent.text.lower() and "[wp:Quasar]" in sent.text
 
 
+async def test_sources_are_unique_even_when_several_chunks_share_an_article():
+    corpus = [Chunk("Quasar", "quasar first chunk about luminous nuclei"), Chunk("Quasar", "quasar second chunk about redshift"),
+              Chunk("Black hole", "a black hole powers a quasar")]
+    eng = make(retriever=DemoRetriever(corpus))
+    await eng.submit(pkt("quasar"))
+    await drain(eng)
+    assert eng.store.recent_queries(1)[0]["sources"] == ["Quasar", "Black hole"]
+
+
 async def test_channel_reply_is_prefixed_and_broadcast():
     eng = make(Settings(trigger_mode="channel", send_delay_s=0))
     await eng.submit(pkt("?what is photosynthesis", dm=False))

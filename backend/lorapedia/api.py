@@ -11,7 +11,7 @@ from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, fitter, system
+from . import __version__, demo, fitter, system
 from .download import Downloader, DownloadError, fetch_catalog
 from .ollama import PullManager, list_models, native_base
 
@@ -24,6 +24,7 @@ from .llm.openai_compat import OpenAICompatLLM
 from .radio.base import Packet
 from .radio.manager import RadioManager
 from .retrieval.hybrid import RoutingRetriever
+from .sample import make_sample_zim
 from .store import Store
 from .zim import ZimReader
 
@@ -257,6 +258,15 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         index.remove_zim(name)
         return {"removed": name}
 
+    @app.post("/api/kb/sample")
+    async def kb_sample():
+        """One-click tiny ZIM (12 articles) so a new user can try the whole flow before downloading anything."""
+        return register_zim(make_sample_zim(data / "zim" / "sample.zim"))
+
+    @app.post("/api/demo/seed")
+    async def demo_seed():
+        return {"added": await asyncio.to_thread(demo.seed, store)}
+
     @app.post("/api/kb/index/start")
     async def index_start(body: IndexStart):
         if not index.get_zim(body.zim):
@@ -319,6 +329,11 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         except Exception as exc:
             return {"installed": [], "error": f"Cannot reach Ollama at {native_base(settings())}. Is it running? "
                                               f"({exc.__class__.__name__})"}
+
+    @app.get("/api/settings/defaults")
+    async def settings_defaults() -> Settings:
+        """For the UI's "reset to default" buttons."""
+        return Settings()
 
     @app.post("/api/models/pull")
     async def models_pull(body: PullRequest):

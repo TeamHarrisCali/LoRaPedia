@@ -63,12 +63,15 @@ class Store:
 
     def recent_queries(self, limit: int = 50) -> list[dict]:
         with self._lock:
-            rows = self._db.execute("SELECT * FROM queries ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+            rows = self._db.execute("SELECT * FROM queries ORDER BY ts DESC, id DESC LIMIT ?", (limit,)).fetchall()
         out = []
         for r in rows:
             d = dict(r)
             d["sources"] = json.loads(d["sources"])
             d["debug"] = json.loads(d["debug"])
+            # Same shape as the live WebSocket event: `parts` is the list of messages, the count is separate.
+            d["part_count"] = d["parts"]
+            d["parts"] = d["answer"].split("\n")
             out.append(d)
         return out
 
