@@ -1,6 +1,7 @@
 """Message flow: Radio listener -> Queue -> Retriever -> LLM -> Byte fitter -> Sender."""
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable
@@ -13,6 +14,8 @@ from .ratelimit import RateLimiter
 from .retrieval.base import Retriever
 from .store import Store
 from .triggers import parse_message
+
+log = logging.getLogger(__name__)
 
 NOT_FOUND = "Not found in my offline library."
 HELP_TEXT = "Ask me a question by DM. Commands: ?help ?more ?stats. Answers come from offline Wikipedia."
@@ -187,6 +190,11 @@ class Engine:
 
     async def _send(self, packet: Packet, parts: list[str], s: Settings) -> None:
         to = packet.sender_id if packet.is_dm else None
+        if to is None and s.trigger_mode == "dm":
+            # Hard guarantee for direct-message-only mode: nothing is ever posted to a channel,
+            # even if a channel packet somehow reached the worker (e.g. the setting changed while it was queued).
+            log.warning("dropping a public reply: trigger mode is direct-message only")
+            return
         prefix = self._reply_prefix(packet)
         send_now = parts
         if not s.auto_send_parts and len(parts) > 1:

@@ -64,6 +64,23 @@ async def test_sources_are_unique_even_when_several_chunks_share_an_article():
     assert eng.store.recent_queries(1)[0]["sources"] == ["Quasar", "Black hole"]
 
 
+async def test_dm_only_mode_never_posts_publicly_even_if_a_channel_job_reaches_the_worker():
+    from lorapedia.engine import Job
+    eng = make(Settings(trigger_mode="dm", send_delay_s=0))
+    # Bypass submit()'s filtering: e.g. the mode was switched to dm while this job sat in the queue.
+    await eng.process(Job(pkt("?what is a quasar", dm=False), question="what is a quasar"))
+    await eng.process(Job(pkt("?help", dm=False), reply="Ask me a question."))
+    assert eng.radio.sent == []
+
+
+async def test_anyone_can_dm_in_dm_mode_and_gets_a_direct_reply():
+    eng = make(Settings(trigger_mode="dm", send_delay_s=0))
+    for sender in ("!aaaa0001", "!bbbb0002"):
+        await eng.submit(pkt("what is a quasar?", sender=sender))
+    await drain(eng)
+    assert [m.to for m in eng.radio.sent] == ["!aaaa0001", "!bbbb0002"]  # direct, never broadcast (None)
+
+
 async def test_channel_reply_is_prefixed_and_broadcast():
     eng = make(Settings(trigger_mode="channel", send_delay_s=0))
     await eng.submit(pkt("?what is photosynthesis", dm=False))
