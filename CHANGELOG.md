@@ -5,6 +5,17 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-26
+
+### Fixed
+- **Automatic updates stopped at signature verification.** cosign must cache Sigstore's trust root, and the updater's root
+  filesystem is read-only, so it failed with "read-only file system" before it could verify anything. Its cache now lives in the
+  updater's state volume (`TUF_ROOT=/state/tuf`) and `HOME=/tmp`. The updater failed *safe*: nothing was installed and the app
+  kept running. Found by performing a real 0.1.0 to 0.1.1 update. CI now runs cosign under the same read-only flags.
+
+### Upgrading from 0.1.1
+The updater image changed. Once, run `docker compose pull updater && docker compose up -d updater`. From then on updates are automatic.
+
 ## [0.1.1] - 2026-10-26
 
 ### Fixed

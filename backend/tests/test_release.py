@@ -208,3 +208,14 @@ def test_the_app_image_runs_as_an_unprivileged_user_and_carries_its_version():
     df = read("docker", "Dockerfile")
     assert "USER 10001:10001" in df and "org.opencontainers.image.version" in df and "LORAPEDIA_INSTALL=docker" in df
     assert "HEALTHCHECK" in df and "org.opencontainers.image.source" in df
+
+
+def test_the_updater_only_writes_where_its_read_only_container_allows():
+    """cosign caches Sigstore's trust root under HOME/TUF_ROOT, docker and compose under HOME. With a read-only root filesystem both
+    must point at the tmpfs or the state volume, or verification fails closed before it can start (a real bug in v0.1.1)."""
+    df = read("docker", "Dockerfile.updater")
+    assert "HOME=/tmp" in df and "TUF_ROOT=/state/tuf" in df
+    svc = yaml.safe_load(read("docker-compose.yml"))["services"]["updater"]
+    assert svc["read_only"] is True and "/tmp" in svc["tmpfs"]
+    assert any(str(v).endswith(":/state") for v in svc["volumes"])  # the volume TUF_ROOT lives in
+    assert any(str(v).endswith(":/project") for v in svc["volumes"])  # where .env is written

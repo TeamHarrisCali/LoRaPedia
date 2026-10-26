@@ -89,6 +89,19 @@ jobs:
             sleep 2
           done
           test "$health" = healthy
+      - name: cosign works inside the read-only updater (it has to cache Sigstore's trust root somewhere writable)
+        run: |
+          set -u
+          # An unsigned public image: verification must FAIL, but for the right reason (no signature), not because the
+          # hardened container forbids cosign from writing its cache. That was a real bug (v0.1.1).
+          out=$(docker run --rm --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+                  -v lorapedia-ci-cosign:/state lorapedia-updater-ci \
+                  cosign verify --certificate-identity https://example.invalid/x \
+                  --certificate-oidc-issuer https://token.actions.githubusercontent.com alpine:3.20 2>&1 || true)
+          echo "$out" | tail -3
+          if echo "$out" | grep -qiE "read-only file system|failed to create TUF"; then
+            echo "cosign could not initialise its trust root inside the hardened container"; exit 1
+          fi
       - name: The compose files are valid
         run: |
           docker compose config -q
