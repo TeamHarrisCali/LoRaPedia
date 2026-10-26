@@ -246,7 +246,10 @@ Docker socket, and it can do exactly one thing: install the newest published rel
 The honest limits: you are trusting this GitHub account and its release workflow (restricting who can create release tags is
 part of [docs/RELEASING.md](docs/RELEASING.md)); the updater holds the Docker socket, which is root-equivalent on the host,
 which is why it is a separate tiny container rather than part of the app; and the automatic path is covered by unit tests
-with a fake Docker and a fake GitHub, not yet by a long record of real updates between published releases. Turn **Install them automatically**
+with a fake Docker and a fake GitHub **and** has been exercised for real: an update between two published, signed releases
+(0.1.1 to 0.1.2) completed against a real Docker daemon, and the first attempt (0.1.0 to 0.1.1) failed safely at a real bug that
+was then fixed. What has not run yet is the fully *unattended* trigger (the quiet-node timer), only the same code path started
+by the button, and there is no long record of real updates. Turn **Install them automatically**
 off if you would rather click *Update now*.
 
 **Wikipedia.** About once a day it asks `download.kiwix.org` which edition of each installed package is newest (Kiwix publishes
@@ -362,8 +365,9 @@ Where the build departs from the original brief or chose a default for something
 - Retrieval quality was spot-checked on a few dozen questions, not benchmarked.
 - English Wikipedia only has been considered; other languages should work if the ZIM is HTML but are untried.
 - One radio at a time.
-- Automatic updates are covered by unit tests with a fake Docker and a fake GitHub, and the release pipeline by CI; a real
-  update from one published release to the next is the final proof and is recorded in the changelog when done.
+- Automatic updates: verified for real from 0.1.1 to 0.1.2 (signed releases, a real Docker daemon, including the roll-back
+  mechanics), triggered by the *Update now* button. The unattended trigger (waiting for a quiet node, then applying) is covered by
+  unit tests only, and the updater image and your `docker-compose.yml` are not updated automatically (see docs/UPDATING.md).
 
 ## License
 
