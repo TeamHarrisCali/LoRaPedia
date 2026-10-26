@@ -126,3 +126,9 @@ export type LiveEvent =
   | { type: "rx"; from: string; name: string; dm: boolean; rssi: number | null; snr: number | null }
   | { type: "radio"; status: RadioStatus }
   | { type: "error"; detail: string };
+
+export interface WikiPackage {
+  id: string; name: string; variant: string; approx_mb: number; recommended: boolean; blurb: string; good_for: string;
+  state: "available" | "downloading" | "paused" | "indexing" | "ready" | "downloaded" | "error";
+  progress: number; filename: string | null; articles: number; detail: string | null;
+}

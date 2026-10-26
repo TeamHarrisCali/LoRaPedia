@@ -1,6 +1,7 @@
 """FastAPI app: settings, simulator, knowledge base, query log, and a WebSocket feed for the UI."""
 
 import asyncio
+import logging
 import os
 import shutil
 from contextlib import asynccontextmanager
@@ -13,7 +14,9 @@ from pydantic import BaseModel
 
 from . import __version__, demo, fitter, system
 from .download import Downloader, DownloadError, fetch_catalog
+from .embed import EmbedError
 from .ollama import PullManager, list_models, native_base
+from . import packages
 
 from .config import Settings
 from .embed import Embedder, HashEmbedder, OllamaEmbedder
@@ -60,6 +63,10 @@ class TryRequest(BaseModel):
     system_prompt: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
+
+
+class InstallRequest(BaseModel):
+    replace: bool = False  # also remove other installed Wikipedia packages once this one is ready
 
 
 class DownloadRequest(BaseModel):
@@ -133,8 +140,32 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         if not index.get_zim(zim_file.name):
             register_zim(zim_file)
 
+    installs: dict[str, dict] = {}  # filename -> {"package": id, "replace": [library names to drop when ready]}
+
     async def on_download_done(path: Path) -> None:
         register_zim(path)
+        if path.name in installs:  # a one-click package: index it straight away
+            asyncio.create_task(finish_install(path.name))
+
+    async def finish_install(name: str) -> None:
+        """Index a freshly downloaded package, then (if asked) retire the packages it replaces."""
+        try:
+            while indexer.progress.state in ("running", "paused"):  # one indexing job at a time
+                await asyncio.sleep(1)
+            indexer.embedder = current_embedder()
+            indexer.start(name, max_articles=None, lead_only=False)
+            await indexer.wait()
+            if indexer.progress.state != "done":
+                return  # keep the old package serving; the error is visible on the Knowledge page
+            for old in installs[name]["replace"]:
+                zim = index.get_zim(old)
+                if zim:
+                    index.remove_zim(old)
+                    old_path = Path(zim["path"])
+                    if old_path.parent == (data / "zim").resolve() and old_path.exists():
+                        old_path.unlink()  # only ever files LoRaPedia itself downloaded into its zim folder
+        except Exception:
+            logging.getLogger(__name__).exception("finishing install of %s failed", name)
 
     downloader = Downloader(data / "zim", on_done=on_download_done, transport=(radio_options or {}).get("http_transport"))
     pulls = PullManager(transport=(radio_options or {}).get("http_transport"))
@@ -448,6 +479,71 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
             raise HTTPException(404, "No such download.")
         getattr(downloader, action)(job_id)
         return downloader.jobs[job_id].as_dict()
+
+    # ---- one-click Wikipedia packages (modelled on Project NOMAD's curated list) ---------
+
+    def package_state(pkg: dict) -> dict:
+        prefix = f"wikipedia_en_{pkg['variant']}_"
+        zim = next((z for z in index.list_zims() if z["name"].startswith(prefix)), None)
+        job = next((j for j in downloader.jobs.values() if j.filename.startswith(prefix) and j.state != "done"), None)
+        out = {**pkg, "state": "available", "progress": 0.0, "filename": None, "articles": 0, "detail": None}
+        if job:
+            pct = job.bytes / job.total if job.total else 0.0
+            out.update(filename=job.filename, progress=pct, detail=job.error)
+            out["state"] = {"running": "downloading", "paused": "paused", "error": "error"}.get(job.state, "available")
+            return out
+        if zim:
+            ip = indexer.progress
+            out.update(filename=zim["name"], articles=zim["indexed_articles"])
+            if ip.zim == zim["name"] and ip.state in ("running", "paused"):
+                out.update(state="indexing", progress=ip.entries_done / ip.entries_total if ip.entries_total else 0.0)
+            elif ip.zim == zim["name"] and ip.state == "error":
+                out.update(state="error", detail=ip.error)
+            elif zim["name"] in installs and zim["status"] != "done":
+                out.update(state="indexing", progress=0.0)  # downloaded, waiting its turn
+            elif zim["status"] == "done":
+                out["state"] = "ready"
+            else:
+                out["state"] = "downloaded"  # in the library but not indexed (e.g. imported by hand)
+        return out
+
+    @app.get("/api/kb/packages")
+    async def kb_packages():
+        return [package_state(p) for p in packages.PACKAGES]
+
+    @app.post("/api/kb/packages/{package_id}/install")
+    async def kb_package_install(package_id: str, body: InstallRequest):
+        """Download, add to the library and index, in one step. Checks the cheap failure causes first."""
+        pkg = packages.BY_ID.get(package_id)
+        if not pkg:
+            raise HTTPException(404, "Unknown package.")
+        # An embedding model that is missing would fail only after a long download; find out now.
+        try:
+            await current_embedder().embed(["probe"])
+        except EmbedError as exc:
+            raise HTTPException(400, f"{exc} (Or turn on keyword-only search on the Model page.)") from exc
+        try:
+            info = await packages.resolve(pkg, (radio_options or {}).get("http_transport"))
+        except Exception as exc:
+            raise HTTPException(502, str(exc)) from exc
+        if index.get_zim(info["filename"]):
+            raise HTTPException(409, f"{pkg['name']} ({info['version']}) is already installed.")
+        free_mb = shutil.disk_usage(data).free / 1e6
+        need_mb = info["size_mb"] * packages.DISK_MARGIN
+        part = data / "zim" / f"{info['filename']}.part"
+        need_mb -= (part.stat().st_size / 1e6) if part.exists() else 0  # a resumed download needs less
+        if free_mb < need_mb:
+            raise HTTPException(400, f"Not enough disk space: {pkg['name']} needs about {need_mb / 1000:.1f} GB "
+                                     f"(including its search index) and {free_mb / 1000:.1f} GB is free.")
+        replace = []
+        if body.replace:
+            replace = [z["name"] for z in index.list_zims() if packages.package_for_filename(z["name"])]
+        installs[info["filename"]] = {"package": pkg["id"], "replace": replace}
+        try:
+            downloader.start(info["url"])
+        except DownloadError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {**package_state(pkg), "version": info["version"], "size_mb": info["size_mb"], "source": info["source"]}
 
     # ---- live feed ----------------------------------------------------------------------
 

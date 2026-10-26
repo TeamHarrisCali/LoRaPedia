@@ -14,9 +14,9 @@ KIWIX_WIKIPEDIA = "https://download.kiwix.org/zim/wikipedia/"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][\w.\-]*\.zim$")
 
 VARIANTS = {  # kiwix naming: wikipedia_en_<scope>_<flavour>_<date>.zim
-    "top_mini": "Top ~50k articles, intro paragraphs only, no images. Smallest. Best first install.",
-    "top_nopic": "Top ~50k articles, full text, no images.",
-    "top_maxi": "Top ~50k articles, full text with images.",
+    "top_mini": "Most-read articles, intro paragraphs only, no images. Smallest. Best first install.",
+    "top_nopic": "Most-read articles, full text, no images.",
+    "top_maxi": "Most-read articles, full text with images.",
     "all_mini": "All of English Wikipedia, intro paragraphs only. Good coverage, moderate size.",
     "all_nopic": "All of English Wikipedia, full text, no images. Large (tens of GB).",
     "all_maxi": "All of English Wikipedia with images. Very large. Not recommended.",

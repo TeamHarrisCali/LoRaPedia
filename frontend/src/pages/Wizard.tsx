@@ -4,6 +4,7 @@ import { IndexControls } from "../components/IndexControls";
 import { ModelInstaller } from "../components/ModelInstaller";
 import { QueryItem } from "../components/QueryItem";
 import { RadioConnect } from "../components/RadioConnect";
+import { WikipediaPackages } from "../components/WikipediaPackages";
 import { ZimLibrary } from "../components/ZimLibrary";
 import { Badge, Button, Card, Check, Help, PageHeader } from "../components/ui";
 import { api, errorText } from "../lib/api";
@@ -165,9 +166,12 @@ export function Wizard() {
           {cur.key === "hardware" && <HardwareStep />}
           {cur.key === "llm" && <ModelStep />}
           {cur.key === "radio" && <RadioStep />}
-          {cur.key === "wikipedia" && <ZimLibrary onChanged={() => void kb.reload()} />}
+          {cur.key === "wikipedia" && <>
+            <WikipediaPackages onChanged={() => void kb.reload()} />
+            <details className="mt-4"><summary className="cursor-pointer text-sm text-muted">Have your own file, or want the 12-article sample?</summary><div className="mt-3"><ZimLibrary onChanged={() => void kb.reload()} /></div></details>
+          </>}
           {cur.key === "index" && <>
-            <p className="mb-3 text-sm text-muted">Tip: choose "First 10,000 articles" with "Intro only" for a working system in minutes. You can index the rest later.</p>
+            <p className="mb-3 text-sm text-muted">A Wikipedia package you installed in the last step is indexed automatically, so there may be nothing to do here but watch. For your own file, choose how much to index: "First 10,000 articles" with "Intro only" gives a working system in minutes.</p>
             <IndexControls onDone={() => void kb.reload()} />
             {hasIndex && <p className="mt-3 text-sm text-teal" role="status">{kb.data?.articles.toLocaleString()} articles are searchable now.</p>}
           </>}

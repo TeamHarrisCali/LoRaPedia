@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { IndexControls } from "../components/IndexControls";
+import { WikipediaPackages } from "../components/WikipediaPackages";
 import { ZimLibrary } from "../components/ZimLibrary";
 import { Badge, Button, Card, EmptyState, PageHeader, SectionTitle } from "../components/ui";
 import { api, errorText } from "../lib/api";
@@ -32,7 +33,11 @@ export function Knowledge() {
         {tile("Disk used", s ? fmtBytes(s.disk_bytes) : "–")}
         {tile("Last indexed", s ? timeAgo(s.last_indexed) : "–")}
       </div>
-      <div className="mb-5"><ZimLibrary onChanged={() => void stats.reload()} /></div>
+      <div className="mb-5"><WikipediaPackages onChanged={() => void stats.reload()} /></div>
+      <details className="mb-5 rounded-xl border border-line bg-surface/90 p-1">
+        <summary className="cursor-pointer px-4 py-3 font-serif text-lg font-semibold">Other files and advanced options</summary>
+        <div className="p-1"><ZimLibrary onChanged={() => void stats.reload()} /></div>
+      </details>
       <div className="mb-5"><IndexControls onDone={() => void stats.reload()} /></div>
 
       <Card>
