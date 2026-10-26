@@ -496,7 +496,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         prefix = f"wikipedia_en_{pkg['variant']}_"
         zim = next((z for z in index.list_zims() if z["name"].startswith(prefix)), None)
         job = next((j for j in downloader.jobs.values() if j.filename.startswith(prefix) and j.state != "done"), None)
-        out = {**pkg, "state": "available", "progress": 0.0, "filename": None, "articles": 0, "detail": None}
+        out = {**pkg, "needs_mb": round(pkg["approx_mb"] * packages.DISK_MARGIN), "state": "available", "progress": 0.0, "filename": None, "articles": 0, "detail": None}
         if job:
             pct = job.bytes / job.total if job.total else 0.0
             out.update(filename=job.filename, progress=pct, detail=job.error)

@@ -30,7 +30,11 @@ PACKAGES: list[dict[str, Any]] = [
      "good_for": "A permanent, complete library on a big disk."},
 ]
 BY_ID = {p["id"]: p for p in PACKAGES}
-DISK_MARGIN = 1.3  # the search index is stored beside the file, so require headroom beyond the download itself
+# The search index sits beside the download and is LARGER than it: every chunk stores a 768-float vector (~3 KB).
+# Measured on Quick Reference: 284 MB file -> ~0.9 GB index (about 3.2x, extrapolated from 11% indexed), so the
+# total need is roughly 4x the download. Only that package was measured; the others use the same factor as a
+# guess, and full-text editions have more chunks per article, so treat them as optimistic.
+DISK_MARGIN = 4.0
 
 
 def size_to_mb(size: str) -> int:

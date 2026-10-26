@@ -29,7 +29,7 @@ the Wikipedia library, the model, and the radio. A non-technical person can set 
 |---|---|---|
 | **Computer** | Any 64-bit x86 or ARM64 machine: mini PC, laptop, Raspberry Pi 5, Jetson | Same, with more memory |
 | **Memory** | 4 GB (1B model, small Wikipedia file) | 8 to 16 GB (3B model) |
-| **Disk** | 10 GB free | 30 GB+ if you want the bigger Wikipedia files |
+| **Disk** | 3 GB free (Quick Reference plus a model) | 50 GB+ for Complete (Compact); see the package table |
 | **GPU** | Not needed | Makes answers faster; an NVIDIA card with 6 GB+ allows the 8B model |
 | **Radio** | None (use the built-in simulator) | Any Meshtastic device: Heltec, T-Beam, RAK, T-Echo... |
 
@@ -81,31 +81,47 @@ sent over the air.
 
 ## Getting Wikipedia files
 
-LoRaPedia reads [Kiwix](https://www.kiwix.org) **ZIM** files. Three ways to add one, all on the **Knowledge** page:
+On the **Knowledge** page (and in the wizard) pick a Wikipedia **package** and press **Install**. LoRaPedia downloads
+it from [Kiwix](https://www.kiwix.org), adds it to the library, and builds the search index, all in one step.
+The newest version is looked up when you press the button. This is the only part of LoRaPedia that goes online,
+and only when you press it. Downloads show progress and speed and **resume** if interrupted.
 
-- **Download from Kiwix.** Press *Browse Wikipedia files*. This is the only feature that goes online, and only
-  when you press it. Downloads show progress and speed and **resume** if interrupted.
+| Package | Download | Free space to plan for\* | What it is |
+|---|---|---|---|
+| **Quick Reference** (recommended) | ~300 MB | ~1.2 GB | The most-read articles, introductions only |
+| Popular Articles | ~2.2 GB | ~9 GB | The same articles with their full text |
+| Complete (Compact) | ~12.5 GB | ~50 GB | Every English article, introductions only |
+| Complete (Full Text) | ~53 GB | ~210 GB | Every article, full text. Very large |
+
+\* The search index is stored beside the download and is **about three times larger than it**, because each chunk of
+text stores a 768-number vector. That ratio was measured on Quick Reference only; the larger rows apply the same
+factor and full-text editions have more chunks per article, so treat them as optimistic. The installer refuses to
+start if the disk is too small, and refuses *before* downloading if the embedding model is missing.
+
+Image editions are not offered: LoRaPedia never uses images.
+
+**How long indexing takes.** It is dominated by the embedding model, which on one test laptop (RTX 3050 Ti,
+`nomic-embed-text`) handled roughly 60 to 130 chunks per second, i.e. about 6 to 26 articles per second depending on
+what else was using the GPU. Quick Reference (about 50,000 real articles, about 200,000 chunks) therefore takes
+roughly an hour or two. It is safe to stop and resume, and you can ask questions meanwhile; the index is built in
+the file's order (alphabetical), so until it finishes, only the part already done can answer.
+
+**Counting articles.** Kiwix files list redirects as articles, and over 90% of a Wikipedia file's entries are
+redirects. LoRaPedia estimates the real article count by sampling, so figures are shown as "about".
+
+Other ways to add a file (Knowledge page, *Other files and advanced options*):
+
 - **Import a file you already have.** Enter its path.
 - **Copy it** into the `zim/` folder inside the data directory and restart.
+- **Paste a Kiwix link**, or browse every English Wikipedia variant Kiwix lists.
+- **The 12-article sample**, to try everything before downloading anything.
 
-Which one? The catalog shows each file's size. In short:
+**Indexing a subset.** For your own files you can index "first 10,000" or "intro only". "First N" means the first N
+in the file's own order, which is alphabetical, **not** the most popular, so a partial index is lopsided. Prefer
+letting it finish, or use a smaller package.
 
-| Variant | What it is |
-|---|---|
-| `top_mini` | Most-read articles, intro paragraphs only, no images. **Smallest. Start here.** |
-| `top_nopic` | Most-read articles, full text, no images |
-| `all_mini` | All of English Wikipedia, intro paragraphs only |
-| `all_nopic` | All of English Wikipedia, full text. Large |
-
-Files from `top_*` are already trimmed to popular articles, so they index quickly and are plenty for a mesh.
-Images are never used, so `maxi` variants are a waste of disk.
-
-**Indexing** reads the file and builds the search index. You can pick *how many* articles (all, first 10,000,
-first 100,000) and *how much of each* (intro only, or intro plus key sections). It shows progress and ETA,
-can be paused, and **resumes where it stopped**, so you can start small and expand later. "First N" means the
-first N in the file's own order, not the N most popular; use a `top_*` file when you want popularity.
-
-To try everything first, the Knowledge page has a one-click **12-article sample**.
+If you change the embedding model after indexing, the index must be rebuilt (different models make incompatible
+vectors). The installer asks before doing this, and your files are never deleted by it.
 
 ## Setting up the Meshtastic radio
 
@@ -258,11 +274,13 @@ Where the build departs from the original brief or chose a default for something
 
 ## Limitations
 
-- Verified on one real radio: a **RAK4631 over USB** exchanged a direct message with a phone-connected node and the
-  answer came back (about 1.5 s with a local 3B model). Network and Bluetooth connections, other devices, and
-  channel-mode replies are only tested against a fake radio. A full Wikipedia dump has **not** been indexed, so
-  indexing speed on the large files is unmeasured.
-- Semantic (embedding) search was not exercised against a real embedding model; keyword and hybrid logic were.
+- Verified on one real radio and real Wikipedia (the Quick Reference package, indexed with `nomic-embed-text`): a
+  **RAK4631 over USB** exchanged a direct message with a phone-connected node and the answer came back (about 1.5 s
+  with a local 3B model). Network and Bluetooth connections, other devices, and channel-mode replies are only tested
+  against a fake radio.
+- Only the Quick Reference package has been installed. The larger packages' download, indexing time and disk use are
+  extrapolated, not measured.
+- Retrieval quality was spot-checked on a few dozen questions, not benchmarked.
 - English Wikipedia only has been considered; other languages should work if the ZIM is HTML but are untried.
 - One radio at a time.
 

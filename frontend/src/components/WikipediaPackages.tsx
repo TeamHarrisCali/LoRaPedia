@@ -43,7 +43,8 @@ export function WikipediaPackages({ onChanged }: { onChanged?: () => void }) {
       </SectionTitle>
       <ul className="grid gap-3 xl:grid-cols-2">
         {list.map((p) => {
-          const tooBig = free !== undefined && (p.approx_mb * 1.3) / 1000 > free && p.state === "available";
+          const needs = p.needs_mb ?? p.approx_mb * 4; // download plus its search index
+          const tooBig = free !== undefined && needs / 1000 > free && p.state === "available";
           const others = installed.filter((o) => o.id !== p.id);
           const pct = Math.round(p.progress * 100);
           return (
@@ -51,7 +52,7 @@ export function WikipediaPackages({ onChanged }: { onChanged?: () => void }) {
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-lg font-semibold">{p.name}</h3>
                 {p.recommended && <Badge tone="amber">Recommended</Badge>}
-                <span className="ml-auto font-mono text-sm text-muted">≈ {fmtSize(p.approx_mb)}</span>
+                <span className="ml-auto text-right font-mono text-sm text-muted">≈ {fmtSize(p.approx_mb)}<span className="block text-xs">{fmtSize(needs)} with index</span></span>
               </div>
               <p className="mt-1 text-sm text-muted">{p.blurb}</p>
               <p className="mt-1 text-xs text-muted">{p.good_for}</p>
@@ -105,7 +106,7 @@ export function WikipediaPackages({ onChanged }: { onChanged?: () => void }) {
           );
         })}
       </ul>
-      <p className="mt-3 text-xs text-muted">Sizes are approximate and include only the download; the search index needs extra room. Images are never used, so image-heavy editions are not offered. Only one is needed: more articles means a slower index, not necessarily better answers.</p>
+      <p className="mt-3 text-xs text-muted">The big number is the download. The search index is stored beside it and is about three times larger, so the second figure is the free space to plan for (measured on Quick Reference; the larger packages are estimates). Images are never used, so image-heavy editions are not offered. Only one is needed: more articles means a slower index, not necessarily better answers.</p>
     </Card>
   );
 }
