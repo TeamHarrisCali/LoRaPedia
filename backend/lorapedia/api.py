@@ -31,6 +31,7 @@ from .retrieval.hybrid import RoutingRetriever
 from .sample import make_sample_zim
 from .store import Store
 from .updates import UpdateError, UpdateService
+from .wikipedia_updates import WikipediaUpdater, edition
 from .zim import ZimReader
 
 
@@ -204,19 +205,27 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
                             transport=opts.get("github_transport"), updater_transport=opts.get("updater_transport"),
                             environ=opts.get("environ"))
 
+    wiki_updates = WikipediaUpdater(
+        store=store, settings=settings, list_zims=index.list_zims, quiet=updates.idle_reason,
+        install=lambda *a, **k: install_package(*a, **k),  # defined below; resolved when called
+        transport=opts.get("http_transport"))
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         worker = asyncio.create_task(engine.run_worker())
         radio.start()
         updates.start()
+        wiki_updates.start()
         yield
         indexer.stop()
         worker.cancel()
         updates.stop()
+        wiki_updates.stop()
         await radio.stop()
 
     app = FastAPI(title="LoRaPedia", lifespan=lifespan)
     app.state.engine, app.state.index, app.state.indexer, app.state.radio, app.state.updates = engine, index, indexer, radio, updates
+    app.state.wiki_updates = wiki_updates
 
     # ---- status / settings --------------------------------------------------------------
 
@@ -522,7 +531,9 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         prefix = f"wikipedia_en_{pkg['variant']}_"
         zim = next((z for z in index.list_zims() if z["name"].startswith(prefix)), None)
         job = next((j for j in downloader.jobs.values() if j.filename.startswith(prefix) and j.state != "done"), None)
-        out = {**pkg, "needs_mb": round(pkg["approx_mb"] * packages.DISK_MARGIN), "state": "available", "progress": 0.0, "filename": None, "articles": 0, "detail": None}
+        out = {**pkg, "needs_mb": round(pkg["approx_mb"] * packages.DISK_MARGIN), "state": "available", "progress": 0.0,
+               "filename": None, "articles": 0, "detail": None, "installed_edition": None,
+               "update": next((u for u in wiki_updates.status()["available"] if u["package"] == pkg["id"]), None)}
         if job:
             pct = job.bytes / job.total if job.total else 0.0
             out.update(filename=job.filename, progress=pct, detail=job.error)
@@ -530,7 +541,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
             return out
         if zim:
             ip = indexer.progress
-            out.update(filename=zim["name"], articles=zim["indexed_articles"])
+            out.update(filename=zim["name"], articles=zim["indexed_articles"], installed_edition=edition(zim["name"]))
             if ip.zim == zim["name"] and ip.state in ("running", "paused"):
                 out.update(state="indexing", progress=ip.entries_done / ip.entries_total if ip.entries_total else 0.0)
             elif ip.zim == zim["name"] and ip.state == "error":
@@ -547,47 +558,87 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     async def kb_packages():
         return [package_state(p) for p in packages.PACKAGES]
 
-    @app.post("/api/kb/packages/{package_id}/install")
-    async def kb_package_install(package_id: str, body: InstallRequest):
-        """Download, add to the library and index, in one step. Checks the cheap failure causes first."""
+    class InstallError(Exception):
+        def __init__(self, status: int, message: str) -> None:
+            super().__init__(message)
+            self.status, self.message = status, message
+
+    async def install_package(package_id: str, *, replace: bool = False, replace_names: list[str] | None = None,
+                              allow_rebuild: bool = True) -> dict:
+        """Download, add to the library and index, in one step. Checks the cheap failure causes first.
+
+        replace_names: retire exactly these library files once the new one is ready (used by updates, so only the
+        older edition of the SAME package goes). allow_rebuild=False refuses instead of rebuilding the whole index."""
         pkg = packages.BY_ID.get(package_id)
         if not pkg:
-            raise HTTPException(404, "Unknown package.")
+            raise InstallError(404, "Unknown package.")
         # An embedding model that is missing would fail only after a long download; find out now.
         try:
             await current_embedder().embed(["probe"])
         except EmbedError as exc:
-            raise HTTPException(400, f"{exc} (Or turn on keyword-only search on the Model page.)") from exc
+            raise InstallError(400, f"{exc} (Or turn on keyword-only search on the Model page.)") from exc
         try:
             info = await packages.resolve(pkg, (radio_options or {}).get("http_transport"))
         except Exception as exc:
-            raise HTTPException(502, str(exc)) from exc
+            raise InstallError(502, str(exc)) from exc
         if index.get_zim(info["filename"]):
-            raise HTTPException(409, f"{pkg['name']} ({info['version']}) is already installed.")
+            raise InstallError(409, f"{pkg['name']} ({info['version']}) is already installed.")
         free_mb = shutil.disk_usage(data).free / 1e6
         need_mb = info["size_mb"] * packages.DISK_MARGIN
         part = data / "zim" / f"{info['filename']}.part"
         need_mb -= (part.stat().st_size / 1e6) if part.exists() else 0  # a resumed download needs less
         if free_mb < need_mb:
-            raise HTTPException(400, f"Not enough disk space: {pkg['name']} needs about {need_mb / 1000:.1f} GB "
-                                     f"(including its search index) and {free_mb / 1000:.1f} GB is free.")
+            raise InstallError(400, f"Not enough disk space: {pkg['name']} needs about {need_mb / 1000:.1f} GB "
+                                    f"(including its search index) and {free_mb / 1000:.1f} GB is free.")
         built_with = index.embedder_name()
         rebuild = built_with is not None and built_with != current_embedder().name
-        if rebuild and not body.replace:
-            raise HTTPException(409, f"Your search index was built with '{built_with}' but you now use "
-                                     f"'{current_embedder().name}'. Installing means rebuilding the index from "
-                                     "scratch (your files are not deleted). Confirm to rebuild and install.")
-        replace = []
+        if rebuild and not allow_rebuild:
+            raise InstallError(409, f"Your search index was built with '{built_with}' but you now use '{current_embedder().name}', "
+                                    "so this needs the whole index rebuilt. Do that by hand from the Knowledge page.")
+        if rebuild and not replace:
+            raise InstallError(409, f"Your search index was built with '{built_with}' but you now use "
+                                    f"'{current_embedder().name}'. Installing means rebuilding the index from "
+                                    "scratch (your files are not deleted). Confirm to rebuild and install.")
+        retire = []
         if rebuild:
-            replace = [z["name"] for z in index.list_zims()]  # everything must be re-indexed with the new embedder
-        elif body.replace:
-            replace = [z["name"] for z in index.list_zims() if packages.package_for_filename(z["name"])]
-        installs[info["filename"]] = {"package": pkg["id"], "replace": replace}
+            retire = [z["name"] for z in index.list_zims()]  # everything must be re-indexed with the new embedder
+        elif replace_names is not None:
+            retire = [n for n in replace_names if index.get_zim(n)]
+        elif replace:
+            retire = [z["name"] for z in index.list_zims() if packages.package_for_filename(z["name"])]
+        installs[info["filename"]] = {"package": pkg["id"], "replace": retire}
         try:
             downloader.start(info["url"])
         except DownloadError as exc:
-            raise HTTPException(400, str(exc)) from exc
+            raise InstallError(400, str(exc)) from exc
         return {**package_state(pkg), "version": info["version"], "size_mb": info["size_mb"], "source": info["source"]}
+
+    @app.post("/api/kb/packages/{package_id}/install")
+    async def kb_package_install(package_id: str, body: InstallRequest):
+        try:
+            return await install_package(package_id, replace=body.replace)
+        except InstallError as exc:
+            raise HTTPException(exc.status, exc.message) from exc
+
+    @app.get("/api/kb/updates")
+    async def kb_updates():
+        return wiki_updates.status()
+
+    @app.post("/api/kb/updates/check")
+    async def kb_updates_check():
+        """"Check now" for Wikipedia editions: always allowed, even with the periodic check off."""
+        result = await wiki_updates.check()
+        return {**wiki_updates.status(), "result": result}
+
+    @app.post("/api/kb/packages/{package_id}/update")
+    async def kb_package_update(package_id: str):
+        """Install the newer edition of an installed package; its older edition is retired once the new one is ready."""
+        try:
+            return await wiki_updates.apply(package_id, who="user")
+        except InstallError as exc:
+            raise HTTPException(exc.status, exc.message) from exc
+        except LookupError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     # ---- app updates (GitHub releases; applied by the separate updater container) -----------------
 

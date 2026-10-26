@@ -1,5 +1,6 @@
 import { ChangeEvent, useState } from "react";
 import { SaveBar } from "../components/SaveBar";
+import { UpdatesCard } from "../components/UpdatesCard";
 import { Button, Card, Field, PageHeader, SectionTitle, Toggle } from "../components/ui";
 import { api, errorText } from "../lib/api";
 import { useDraft, useSettings } from "../lib/settings";
@@ -75,6 +76,8 @@ export function SettingsPage() {
         </fieldset>
       </Card>
 
+      <UpdatesCard draft={draft} set={set} />
+
       <Card className="mb-5">
         <SectionTitle hint="Where LoRaPedia keeps its databases and Wikipedia files.">Data</SectionTitle>
         <dl className="mb-3 grid gap-1 text-sm sm:grid-cols-[10rem_1fr]">
@@ -94,7 +97,7 @@ export function SettingsPage() {
         <Button onClick={seed}>Load demo conversations</Button>
       </Card>
 
-      <p className="text-sm text-muted">LoRaPedia {info.data?.version ?? ""} · 100% offline at runtime · No telemetry</p>
+      <p className="text-sm text-muted">LoRaPedia {info.data?.version ?? ""} · Offline unless you press a download button or leave update checks on · No telemetry</p>
       <SaveBar dirty={dirty} onSave={() => void saveDraft()} onDiscard={discard} />
     </>
   );

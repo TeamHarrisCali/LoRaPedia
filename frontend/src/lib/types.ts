@@ -14,6 +14,10 @@ export interface Settings {
   send_delay_s: number;
   source_tags: boolean;
   ai_fallback: boolean;
+  update_check: boolean;
+  auto_update: boolean;
+  wikipedia_update_check: boolean;
+  wikipedia_auto_update: boolean;
   queue_when_limited: boolean;
   max_queued_per_node: number;
   ack_queued: boolean;
@@ -136,4 +140,24 @@ export interface WikiPackage {
   id: string; name: string; variant: string; approx_mb: number; needs_mb?: number; recommended: boolean; blurb: string; good_for: string;
   state: "available" | "downloading" | "paused" | "indexing" | "ready" | "downloaded" | "error";
   progress: number; filename: string | null; articles: number; detail: string | null;
+  installed_edition?: string | null; update?: WikiUpdateInfo | null;
+}
+
+export interface UpdaterState { state: string; message: string; current?: string | null; target?: string | null; failed_versions?: string[] }
+export interface AppUpdateStatus {
+  version: string;
+  install: { kind: "docker" | "docker-manual" | "git" | "other"; steps: string[] };
+  check_enabled: boolean; auto_update: boolean; can_apply: boolean; reason: string | null;
+  checked: number | null; last_error: string | null;
+  latest: { tag: string; url: string; notes: string } | null; update_available: boolean;
+  last_update: { from: string; to: string; ts: number; backup: string; result: string } | null;
+  updater: UpdaterState | null; idle_reason: string | null;
+  result?: { ok: boolean; outcome: string; message: string };
+}
+export interface WikiUpdateInfo { package: string; name: string; installed: string; latest: string; size_mb: number; needs_mb: number; replaces: string[] }
+export interface WikiUpdateStatus {
+  check_enabled: boolean; auto_update: boolean; checked: number | null; error: string | null;
+  available: WikiUpdateInfo[];
+  last: Record<string, { result: string; to: string; ts: number; message?: string }>;
+  result?: { ok: boolean; message: string };
 }

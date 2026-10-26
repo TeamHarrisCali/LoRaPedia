@@ -162,10 +162,35 @@ to run. Fonts and icons are bundled; no request leaves the machine. A WebSocket 
 status; everything else is polled REST. Settings pages edit a local draft and save only the fields you touched, so
 immediate actions elsewhere (like blocking a node) are never overwritten by a stale form.
 
+## Updates
+
+```
+   GitHub Releases API <--(daily GET, strict parse)-- app (UpdateService)         Kiwix listing <--(daily)-- app (WikipediaUpdater)
+                                                         |  POST /v1/apply (no parameters, bearer token)
+                                                         v
+                                              updater container (holds the Docker socket)
+                          GitHub again (its own lookup) -> docker pull ghcr.io/.../lorapedia:<v> -> cosign verify (exact identity)
+                          -> .env LORAPEDIA_IMAGE=<digest ref> -> docker compose up -d --no-deps lorapedia
+                          -> wait healthy + reports <v>  --fail-->  restore lorapedia-rollback:previous
+```
+
+The app only ever *checks*; applying is the updater's job, so the process that handles mesh text never holds the Docker socket.
+The request to the updater carries no version or image: the updater reads GitHub itself, accepts only a strictly newer stable
+`vX.Y.Z`, and runs only if cosign confirms the image was signed by this repository's release workflow for that exact tag. The new
+image is referenced by digest, so what was verified is what runs. A verified backup of the settings database precedes the request.
+Releases are built by `.github/workflows/release.yml` (all actions SHA-pinned; only the images job can write packages or request
+a signing identity; the publish job runs none of our code). See [docs/UPDATING.md](docs/UPDATING.md) and
+[docs/RELEASING.md](docs/RELEASING.md).
+
+Wikipedia editions follow the same install path as a manual package install (disk and embedding-model checks first, resumable
+download, two-pass indexing), replace only the older edition of the same package once the new one is ready, and never rebuild
+the index on their own.
+
 ## Offline and privacy
 
-At runtime the only network traffic is to the local Ollama server. The two things that go online, pulling a model
-and downloading a Wikipedia file, are buttons the user presses. No telemetry, no analytics, no CDN assets.
+At runtime the only network traffic is to the local Ollama server, plus the daily update checks (GitHub's releases API and Kiwix's
+listing) which have switches in Settings. Pulling a model and downloading a Wikipedia file are buttons the user presses. No
+telemetry, no analytics, no CDN assets.
 
 ## Testing approach
 

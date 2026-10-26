@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
-import type { WizardState } from "../lib/types";
+import type { AppUpdateStatus, WizardState } from "../lib/types";
 import { usePoll } from "../lib/usePoll";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon } from "./icons";
@@ -20,6 +20,7 @@ const NAV = [
 
 export function Layout() {
   const wizard = usePoll(() => api.get<WizardState>("/api/wizard"), 15000);
+  const upd = usePoll(() => api.get<AppUpdateStatus>("/api/updates/status"), 60000);
   const nav = useNavigate();
   const loc = useLocation();
   const redirected = useRef(false);
@@ -45,7 +46,7 @@ export function Layout() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 md:flex-row md:gap-6">
           <nav aria-label="Main" className="flex shrink-0 gap-1 overflow-x-auto md:w-48 md:flex-col md:overflow-visible">
             {NAV.map((n) => (
-              <NavLink key={n.to} to={n.to} end={n.end} className={link}><Icon name={n.icon} size={17} />{n.label}</NavLink>
+              <NavLink key={n.to} to={n.to} end={n.end} className={link}><Icon name={n.icon} size={17} />{n.label}{n.to === "/settings" && upd.data?.update_available && <Badge tone="amber">update</Badge>}</NavLink>
             ))}
             <NavLink to="/setup" className={link}>
               <Icon name="wand" size={17} />Setup

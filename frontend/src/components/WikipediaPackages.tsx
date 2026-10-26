@@ -33,6 +33,11 @@ export function WikipediaPackages({ onChanged }: { onChanged?: () => void }) {
       }
     } finally { setBusy(null); }
   }
+  async function updateEdition(p: WikiPackage) {
+    setBusy(p.id);
+    try { await api.post(`/api/kb/packages/${p.id}/update`); await pk.reload(); toast.success("Update started. The old edition is removed once the new one is ready."); }
+    catch (e) { toast.error(errorText(e)); } finally { setBusy(null); }
+  }
   const control = (p: WikiPackage, a: "pause" | "resume" | "cancel") =>
     api.post(`/api/kb/downloads/${encodeURIComponent(p.filename ?? "")}/${a}`).then(() => pk.reload()).catch((e) => toast.error(errorText(e)));
 
@@ -94,7 +99,16 @@ export function WikipediaPackages({ onChanged }: { onChanged?: () => void }) {
                   </div>
                 )}
 
-                {p.state === "ready" && <p className="flex items-center gap-2 text-sm"><Badge tone="teal">Installed</Badge><span className="text-muted">{p.articles.toLocaleString()} articles searchable</span></p>}
+                {p.state === "ready" && (
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <Badge tone="teal">Installed</Badge>
+                    <span className="text-muted">{p.articles.toLocaleString()} articles{p.installed_edition ? ` · edition ${p.installed_edition}` : ""}</span>
+                    {p.update && <>
+                      <Badge tone="amber">New edition {p.update.latest}</Badge>
+                      <Button icon="download" busy={busy === p.id} onClick={() => void updateEdition(p)}>Update now</Button>
+                    </>}
+                  </div>
+                )}
                 {p.state === "downloaded" && <p className="flex items-center gap-2 text-sm"><Badge>In library</Badge><span className="text-muted">Not indexed yet. Use Indexing below.</span></p>}
 
                 {p.state === "error" && (

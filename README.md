@@ -41,18 +41,27 @@ Software: **Docker** (easiest), or **Python 3.11+** and **Node.js 20+** for `./r
 
 ## Quick start
 
-Internet is needed **once**, to fetch software, a model, and a Wikipedia file. After that it runs offline.
+Internet is needed **once**, to fetch software, a model, and a Wikipedia file. After that it runs offline, apart from the
+optional [update checks](#updates).
 
 ### Option A: Docker (recommended)
 
 ```bash
+git clone https://github.com/TeamHarrisCali/LoRaPedia.git && cd LoRaPedia
 docker compose up -d
 ```
 
 Open **http://localhost:8000**. The first visit starts the setup wizard.
 
-This starts LoRaPedia and an Ollama server. Data lives in Docker volumes and survives restarts. For a USB radio
-see [the USB section of docker-compose.yml](docker-compose.yml) (two lines to uncomment).
+This pulls the signed release images and starts LoRaPedia, an Ollama server, and a small **updater** that keeps LoRaPedia
+current (see [Updates](#updates)). Data lives in Docker volumes and survives restarts. For a USB radio, see the USB section
+of [docker-compose.yml](docker-compose.yml) (two lines to uncomment). Developing instead? `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build`.
+
+**Docker or not?** Docker is the supported, auto-updating path on Linux, Raspberry Pi 5 and Jetson. It has limits: Bluetooth
+radios do not work inside a container; a USB radio's device mapping is fixed when the container starts, so after unplugging it
+(or a radio that resets itself, like the RAK4631) you may need `docker compose restart lorapedia` (a WiFi radio avoids this);
+the GPU needs the NVIDIA Container Toolkit; and Docker Desktop on Windows/macOS cannot pass USB devices through. For those,
+use option B.
 
 ### Option B: without Docker
 
@@ -62,7 +71,8 @@ see [the USB section of docker-compose.yml](docker-compose.yml) (two lines to un
 
 It creates a Python environment, builds the web UI, and starts the server on http://localhost:8000. Install and
 start [Ollama](https://ollama.com) yourself first. To let other devices on your network open the UI:
-`HOST=0.0.0.0 ./run.sh` (read [Security](#security) first). Bluetooth radios work with this option only.
+`HOST=0.0.0.0 ./run.sh` (read [Security](#security) first). Bluetooth radios work with this option only. Updates are
+announced but applied by hand (`git pull`).
 
 ### The setup wizard
 
@@ -207,6 +217,45 @@ Environment variables exist for deployment only: `LORAPEDIA_DATA` (data folder),
 **Backups.** *Settings → Back up settings* downloads your configuration. To back up everything, copy the data
 directory (databases and Wikipedia files).
 
+## Updates
+
+LoRaPedia and its Wikipedia can keep themselves current. These checks are the only things it does online without being asked,
+and each has a switch under **Settings → Updates**. Nothing else is sent anywhere: no telemetry, no analytics, no identifier.
+
+**LoRaPedia itself.** About once a day it asks `api.github.com` for this repository's latest *stable* release (one small request;
+only your IP address and the version `lorapedia/0.1.0` are visible to GitHub). If a newer one exists:
+
+| Install | What happens |
+|---|---|
+| **Docker with the updater** (the default compose file) | Applied **automatically** once the node has been quiet for a few minutes: nothing queued, nothing downloading or indexing, no question answered recently. A verified backup of your settings and log is made first. |
+| Docker without the updater | You are told, with the two commands to run (`docker compose pull`, `docker compose up -d`). |
+| `./run.sh` / source checkout | You are told, with the commands (`git pull`, `./run.sh`). |
+
+**How the automatic update is made safe.** The app never touches Docker. A separate, minimal *updater* container holds the
+Docker socket, and it can do exactly one thing: install the newest published release of *this* repository.
+- It takes **no instructions** from the app: it looks up the release on GitHub itself, so a compromised app cannot make it
+  install anything else, an older version, or from another registry.
+- It pulls the image and verifies its **cosign signature** against the exact identity of this repository's release workflow
+  for that exact tag (only the release workflow, run on that tag, can produce a passing image). An image that fails is deleted.
+- What was verified is what runs: the image is pinned by **digest**.
+- The new container must become healthy **and** report the new version within three minutes, or the previous version is put
+  back automatically, and the failed version is not retried.
+- Release builds are produced by GitHub Actions with every action pinned to a commit, publish only from a tag, and carry
+  a build-provenance attestation. Details and how to check them yourself: [docs/UPDATING.md](docs/UPDATING.md).
+
+The honest limits: you are trusting this GitHub account and its release workflow (restricting who can create release tags is
+part of [docs/RELEASING.md](docs/RELEASING.md)); the updater holds the Docker socket, which is root-equivalent on the host,
+which is why it is a separate tiny container rather than part of the app; and the automatic path is covered by unit tests
+with a fake Docker and a fake GitHub, not yet by a long record of real updates between published releases. Turn **Install them automatically**
+off if you would rather click *Update now*.
+
+**Wikipedia.** About once a day it asks `download.kiwix.org` which edition of each installed package is newest (Kiwix publishes
+roughly monthly). If one is newer, and the setting allows, it downloads and indexes the new edition **beside** the old one and
+removes the old one only when the new one is fully ready. It only touches packages you installed (and only their older
+edition, never your own files), only when the node is quiet, never without enough disk space for the new edition and its
+index, and never rebuilds your index on its own. If it cannot start, Settings says why and it tries again a day later.
+Updating takes a while (a download, then re-indexing) and questions keep being answered meanwhile.
+
 ## Security
 
 **The web interface has no password.** Anyone who can open it can change settings, delete the library, and start
@@ -215,6 +264,10 @@ downloads. So:
 - By default it listens on **this computer only** (`127.0.0.1`). The Docker setup is published the same way.
 - Only open it to your local network (`HOST=0.0.0.0` or changing the port mapping) on a network you trust.
 - **Never expose it to the internet.** If you need remote access, put it behind a VPN or an authenticating proxy.
+
+The **updater** container holds the Docker socket (root-equivalent on the host). It is separate from the app on purpose, listens only
+on the private compose network, accepts no parameters, and only installs signed releases of this repository; remove the `updater`
+service from `docker-compose.yml` if you would rather update by hand.
 
 Text arriving from the mesh is untrusted input. LoRaPedia only ever turns it into a search and a text reply. The
 model has no tools and cannot run anything, so the worst outcome of a hostile question is a bad answer.
@@ -240,6 +293,8 @@ model has no tools and cannot run anything, so the worst outcome of a hostile qu
 | **"Busy: N of your questions are already waiting" / "Busy, try again later"** | The sender already has the most questions allowed waiting, or the whole queue is full. Both limits are under Settings. Questions inside the cooldown are normally queued, not rejected. |
 | **Page is blank or looks broken after an update** | Hard-refresh the browser (Ctrl+Shift+R). |
 | **Download fails or stalls** | It keeps its progress: press Resume. This step needs internet; everything else does not. |
+| **"The updater could not be reached"** | The `updater` container is not running (`docker compose ps`), or you removed it. Without it, updates are by hand: `docker compose pull && docker compose up -d`. |
+| **An update "rolled back"** | The new version did not become healthy, so the previous one was restored. Settings → Updates says why; that version is not retried. Check `docker compose logs lorapedia`. |
 | **Bluetooth radio not found in Docker** | Not supported in Docker. Use `./run.sh`. |
 
 Still stuck? The server prints a log (`docker compose logs lorapedia`, or the terminal running `./run.sh`).
@@ -265,15 +320,17 @@ Layout:
 ```
 backend/    FastAPI app (lorapedia/), tests (tests/)
 frontend/   React + Vite + TypeScript + Tailwind UI
-docker/     Dockerfile (multi-stage: build UI, then slim Python runtime)
-docs/       Meshtastic setup guide
+docker/     Dockerfiles: the app (multi-stage) and the updater
+updater/    the updater container's program
+scripts/    release checks used by CI
+docs/       Meshtastic setup, updating, and releasing guides
 ```
 
 The tests cover the byte-limit and splitting logic (including multi-byte text), trigger parsing, rate limiting,
 the message engine, the ZIM reader and indexer, retrieval, the radio adapter (against a fake device), the
 downloader, and the API. The web UI was tested by hand in a browser; it has no automated tests yet.
 
-Architecture and the message flow are in [ARCHITECTURE.md](ARCHITECTURE.md).
+Architecture and the message flow are in [ARCHITECTURE.md](ARCHITECTURE.md). Cutting a release: [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Design decisions
 
@@ -305,6 +362,8 @@ Where the build departs from the original brief or chose a default for something
 - Retrieval quality was spot-checked on a few dozen questions, not benchmarked.
 - English Wikipedia only has been considered; other languages should work if the ZIM is HTML but are untried.
 - One radio at a time.
+- Automatic updates are covered by unit tests with a fake Docker and a fake GitHub, and the release pipeline by CI; a real
+  update from one published release to the next is the final proof and is recorded in the changelog when done.
 
 ## License
 
