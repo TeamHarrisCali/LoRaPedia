@@ -2,11 +2,18 @@
 
 import asyncio
 import os
+import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+from . import __version__, fitter, system
+from .download import Downloader, DownloadError, fetch_catalog
+from .ollama import PullManager, list_models, native_base
 
 from .config import Settings
 from .embed import Embedder, HashEmbedder, OllamaEmbedder
@@ -37,6 +44,21 @@ class NodeToggle(BaseModel):
     on: bool = True
 
 
+class PullRequest(BaseModel):
+    tag: str
+
+
+class TryRequest(BaseModel):
+    question: str
+    system_prompt: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+
+
+class DownloadRequest(BaseModel):
+    url: str
+
+
 class IndexStart(BaseModel):
     zim: str
     max_articles: int | None = None  # e.g. 100000 for "top 100k articles"
@@ -52,6 +74,8 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     index = Index(data / "index.db")
     state = {"settings": store.load_settings()}
     sockets: set[WebSocket] = set()
+    static = Path(os.environ.get("LORAPEDIA_STATIC") or Path(__file__).resolve().parents[2] / "frontend" / "dist")
+    ui_dir = static if (static / "index.html").exists() else None
 
     def settings() -> Settings:
         return state["settings"]
@@ -84,7 +108,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     retriever = RoutingRetriever(index, current_embedder)
     engine: Engine  # created below; the radio manager submits received packets to it
     radio = RadioManager(settings=settings, submit=lambda pkt: engine.submit(pkt), emit=broadcast,
-                         **(radio_options or {}))
+                         **{k: v for k, v in (radio_options or {}).items() if k != "http_transport"})
     engine = Engine(settings=settings, radio=radio, sim_radio=radio.sim, llm=configured_llm,
                     retriever=retriever, store=store, emit=broadcast)
     indexer = Indexer(index, current_embedder())
@@ -101,6 +125,12 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     for zim_file in sorted((data / "zim").glob("*.zim")):  # auto-register anything dropped in data/zim
         if not index.get_zim(zim_file.name):
             register_zim(zim_file)
+
+    async def on_download_done(path: Path) -> None:
+        register_zim(path)
+
+    downloader = Downloader(data / "zim", on_done=on_download_done, transport=(radio_options or {}).get("http_transport"))
+    pulls = PullManager(transport=(radio_options or {}).get("http_transport"))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -269,6 +299,119 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
                 "results": [{"title": c.title, "section": c.section, "text": c.text, "score": c.score,
                              "detail": c.detail} for c in chunks]}
 
+    # ---- system / models ----------------------------------------------------------------
+
+    @app.get("/api/system/hardware")
+    async def hardware():
+        hw = await asyncio.to_thread(system.detect_hardware, data)
+        return {"hardware": hw, "suggestions": system.suggest_models(hw)}
+
+    @app.get("/api/system/info")
+    async def system_info():
+        return {"version": __version__, "data_dir": str(data.resolve()), "static": ui_dir is not None,
+                "disk_free_gb": round(shutil.disk_usage(data).free / 1e9, 1)}
+
+    @app.get("/api/models")
+    async def models():
+        try:
+            return {"installed": await list_models(native_base(settings()), (radio_options or {}).get("http_transport")),
+                    "error": None}
+        except Exception as exc:
+            return {"installed": [], "error": f"Cannot reach Ollama at {native_base(settings())}. Is it running? "
+                                              f"({exc.__class__.__name__})"}
+
+    @app.post("/api/models/pull")
+    async def models_pull(body: PullRequest):
+        return pulls.start(native_base(settings()), body.tag.strip())
+
+    @app.get("/api/models/pulls")
+    async def models_pulls():
+        return list(pulls.jobs.values())
+
+    @app.post("/api/model/try")
+    async def model_try(body: TryRequest):
+        """The Model page's "try it" box: full pipeline with unsaved overrides, nothing sent or logged."""
+        overrides = {k: v for k, v in (("system_prompt", body.system_prompt), ("temperature", body.temperature),
+                                       ("max_tokens", body.max_tokens)) if v is not None}
+        s = settings().model_copy(update=overrides)
+        started = asyncio.get_running_loop().time()
+        try:
+            gen = await engine.generate(body.question, s)
+        except Exception as exc:  # LLMError and anything else: report it, don't crash the page
+            raise HTTPException(502, str(exc) or exc.__class__.__name__) from exc
+        return {"parts": gen.parts, "bytes": [fitter.byte_len(p) for p in gen.parts], "byte_limit": s.byte_limit,
+                "raw": gen.raw, "compressed": gen.compressed, "latency_s": round(asyncio.get_running_loop().time() - started, 2),
+                "chunks": [{"title": c.title, "section": c.section, "score": c.score} for c in gen.chunks]}
+
+    @app.get("/api/wizard")
+    async def wizard_get():
+        return store.get_json("wizard", {"done": [], "skipped": [], "finished": False, "step": 0})
+
+    @app.put("/api/wizard")
+    async def wizard_put(body: dict):
+        keep = {k: body[k] for k in ("done", "skipped", "finished", "step") if k in body}
+        store.set_json("wizard", {**store.get_json("wizard", {"done": [], "skipped": [], "finished": False, "step": 0}), **keep})
+        return store.get_json("wizard")
+
+    # ---- stats / exports ----------------------------------------------------------------
+
+    @app.get("/api/stats/activity")
+    async def activity():
+        return {"hours": store.activity_24h(), **store.today_stats()}
+
+    @app.get("/api/queries/export.csv")
+    async def export_csv():
+        import csv
+        import io
+        import time as _time
+
+        def rows():
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(["time", "sender_id", "sender_name", "question", "answer", "bytes", "byte_limit", "parts",
+                        "latency_s", "sources"])
+            yield buf.getvalue()
+            for r in store.export_rows():
+                buf.seek(0), buf.truncate()
+                w.writerow([_time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(r["ts"])), r["sender_id"],
+                            r["sender_name"], r["question"], r["answer"].replace("\n", " | "), r["bytes"],
+                            r["byte_limit"], r["parts"], r["latency_s"], r["sources"]])
+                yield buf.getvalue()
+        return StreamingResponse(rows(), media_type="text/csv",
+                                 headers={"Content-Disposition": 'attachment; filename="lorapedia-log.csv"'})
+
+    @app.get("/api/settings/backup")
+    async def settings_backup():
+        return Response(settings().model_dump_json(indent=2), media_type="application/json",
+                        headers={"Content-Disposition": 'attachment; filename="lorapedia-settings.json"'})
+
+    # ---- ZIM catalog + downloads (the only online step, always user-initiated) -----------
+
+    @app.get("/api/kb/catalog")
+    async def kb_catalog():
+        try:
+            return await fetch_catalog((radio_options or {}).get("http_transport"))
+        except DownloadError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @app.post("/api/kb/downloads")
+    async def dl_start(body: DownloadRequest):
+        try:
+            return downloader.start(body.url.strip()).as_dict()
+        except DownloadError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/kb/downloads")
+    async def dl_list():
+        return [j.as_dict() for j in downloader.jobs.values()]
+
+    @app.post("/api/kb/downloads/{job_id}/{action}")
+    async def dl_action(job_id: str, action: str):
+        if job_id not in downloader.jobs or action not in ("pause", "resume", "cancel"):
+            raise HTTPException(404, "No such download.")
+        getattr(downloader, action)(job_id)
+        return downloader.jobs[job_id].as_dict()
+
     # ---- live feed ----------------------------------------------------------------------
 
     @app.websocket("/ws")
@@ -281,5 +424,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         except WebSocketDisconnect:
             sockets.discard(ws)
 
+    if ui_dir:  # serve the built UI; hash routing means no SPA fallback is needed
+        app.mount("/", StaticFiles(directory=ui_dir, html=True), name="ui")
     return app
 

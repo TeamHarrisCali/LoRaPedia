@@ -72,6 +72,39 @@ class Store:
             out.append(d)
         return out
 
+    def get_json(self, key: str, default=None):
+        with self._lock:
+            row = self._db.execute("SELECT v FROM kv WHERE k=?", (key,)).fetchone()
+        return json.loads(row["v"]) if row else default
+
+    def set_json(self, key: str, value) -> None:
+        with self._lock:
+            self._db.execute("INSERT INTO kv(k, v) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+                             (key, json.dumps(value)))
+            self._db.commit()
+
+    def activity_24h(self, now: float | None = None) -> list[int]:
+        """Query counts for each of the last 24 hours, oldest first (the dashboard sparkline)."""
+        now = now or time.time()
+        start = now - 24 * 3600
+        with self._lock:
+            rows = self._db.execute("SELECT ts FROM queries WHERE ts >= ?", (start,)).fetchall()
+        buckets = [0] * 24
+        for r in rows:
+            buckets[min(int((r["ts"] - start) // 3600), 23)] += 1
+        return buckets
+
+    def export_rows(self):
+        """Every logged query, oldest first, as plain dicts (for CSV export)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT ts, sender_id, sender_name, question, answer, bytes, byte_limit, parts, latency_s, sources "
+                "FROM queries ORDER BY id").fetchall()
+        for r in rows:
+            d = dict(r)
+            d["sources"] = "; ".join(json.loads(d["sources"]))
+            yield d
+
     def today_stats(self) -> dict:
         midnight = time.mktime(time.localtime()[:3] + (0, 0, 0, 0, 0, -1))
         with self._lock:

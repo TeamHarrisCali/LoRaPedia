@@ -21,6 +21,15 @@ CHUNK_CHARS = 700  # per-chunk context cap so small models stay fast
 
 
 @dataclass
+class Generated:
+    parts: list[str]
+    chunks: list
+    prompt: str
+    compressed: bool
+    raw: str  # cleaned LLM text before fitting
+
+
+@dataclass
 class Job:
     packet: Packet
     question: str | None = None  # None = canned reply only
@@ -116,14 +125,30 @@ class Engine:
             return
 
         started = self._clock()
-        limit = s.byte_limit - self._reply_prefix_bytes(job.packet)
+        gen = await self.generate(job.question, s, self._reply_prefix_bytes(job.packet))
+        parts, chunks, prompt, compressed = gen.parts, gen.chunks, gen.prompt, gen.compressed
+
+        await self._send(job.packet, parts, s)
+        latency = round(self._clock() - started, 2)
+        entry = dict(
+            sender_id=job.packet.sender_id, sender_name=job.packet.sender_name, question=job.question,
+            parts=parts, byte_limit=s.byte_limit, latency_s=latency, sources=[c.title for c in chunks],
+            debug={"prompt": prompt, "compressed": compressed,
+                   "chunks": [{"title": c.title, "text": c.text, "score": c.score} for c in chunks]},
+        )
+        entry["id"] = self.store.log_query(**entry)
+        await self._publish({"type": "query", **entry})
+
+    async def generate(self, question: str, s: Settings, prefix_bytes: int = 0) -> "Generated":
+        """Retrieve, ask the LLM, and fit to the byte budget. Sends nothing (also used by the UI "try it" box)."""
+        limit = s.byte_limit - prefix_bytes
         max_parts = s.effective_max_parts
         if max_parts > 1 and not s.auto_send_parts:
             limit -= fitter.byte_len(MORE_HINT)  # keep room for the "?more" hint on part 1
         budget = fitter.total_budget(limit, max_parts)
 
-        chunks = await self.retriever.search(job.question, s.top_k)
-        prompt = self._build_prompt(job.question, chunks, limit, budget)
+        chunks = await self.retriever.search(question, s.top_k)
+        prompt = self._build_prompt(question, chunks, limit, budget)
         raw = ""
         compressed = False
         if chunks:
@@ -143,17 +168,7 @@ class Engine:
         parts = fitter.fit_answer(raw, limit, max_parts)
         if s.source_tags and chunks and raw != NOT_FOUND:
             parts = fitter.append_tag(parts, f"[wp:{chunks[0].title}]", limit)
-
-        await self._send(job.packet, parts, s)
-        latency = round(self._clock() - started, 2)
-        entry = dict(
-            sender_id=job.packet.sender_id, sender_name=job.packet.sender_name, question=job.question,
-            parts=parts, byte_limit=s.byte_limit, latency_s=latency, sources=[c.title for c in chunks],
-            debug={"prompt": prompt, "compressed": compressed,
-                   "chunks": [{"title": c.title, "text": c.text, "score": c.score} for c in chunks]},
-        )
-        entry["id"] = self.store.log_query(**entry)
-        await self._publish({"type": "query", **entry})
+        return Generated(parts, chunks, prompt, compressed, raw)
 
     def _build_prompt(self, question: str, chunks, limit: int, budget: int) -> str:
         ctx = "\n".join(f"[{i}] {c.title}: {c.text[:CHUNK_CHARS]}" for i, c in enumerate(chunks, 1))
