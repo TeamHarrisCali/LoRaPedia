@@ -54,6 +54,9 @@ services:
   updater:
     image: ${LORAPEDIA_UPDATER_IMAGE:-ghcr.io/teamharriscali/lorapedia-updater:latest}
     <<: *hardening
+    # It is root in its container but every capability is dropped, except the two it needs to edit LORAPEDIA_IMAGE in the
+    # .env next to this file: DAC_OVERRIDE (write in a folder you own) and CHOWN (give the file back to you afterwards).
+    cap_add: [DAC_OVERRIDE, CHOWN]
     read_only: true
     tmpfs: ["/tmp"]
     # No `ports:`: only the app, on this Compose network, can reach it, and only with the shared token.

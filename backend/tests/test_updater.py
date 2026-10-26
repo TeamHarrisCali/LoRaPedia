@@ -249,6 +249,53 @@ def test_the_env_writer_changes_only_what_it_is_told_and_refuses_unsafe_input(tm
             up._write_env(bad)
 
 
+def test_the_env_file_keeps_its_owner_and_mode_and_a_new_one_gets_the_folders(tmp_path):
+    up, _, cfg = make(tmp_path)
+    os.chmod(cfg.env_file, 0o600)
+    before = os.stat(cfg.env_file)
+    up._write_env({"LORAPEDIA_IMAGE": "x"})
+    after = os.stat(cfg.env_file)
+    assert (after.st_uid, after.st_gid, stat.S_IMODE(after.st_mode)) == (before.st_uid, before.st_gid, 0o600)
+    assert not os.path.exists(cfg.env_file + ".tmp")  # no stray temp file left in the user's folder
+    os.remove(cfg.env_file)
+    up._write_env({"LORAPEDIA_IMAGE": "y"})  # created fresh: takes the project folder's owner, normal mode
+    fresh = os.stat(cfg.env_file)
+    assert fresh.st_uid == os.stat(cfg.project_dir).st_uid and stat.S_IMODE(fresh.st_mode) == 0o644
+    assert Path(cfg.env_file).read_text() == "LORAPEDIA_IMAGE=y\n"
+
+
+def test_a_leftover_temp_file_from_an_interrupted_run_cannot_block_updates(tmp_path):
+    up, _, cfg = make(tmp_path)
+    Path(cfg.env_file + ".tmp").write_text("stale half-written junk")
+    up._write_env({"LORAPEDIA_IMAGE": "ok"})
+    assert "LORAPEDIA_IMAGE=ok" in Path(cfg.env_file).read_text() and "junk" not in Path(cfg.env_file).read_text()
+    assert not os.path.exists(cfg.env_file + ".tmp")
+
+
+def test_a_failed_write_leaves_no_temp_file_behind(tmp_path, monkeypatch):
+    up, _, cfg = make(tmp_path)
+    before = Path(cfg.env_file).read_text()
+    monkeypatch.setattr(os, "replace", lambda *a: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(U.UpdateError, match="disk full"):
+        up._write_env({"LORAPEDIA_IMAGE": "x"})
+    assert not os.path.exists(cfg.env_file + ".tmp") and Path(cfg.env_file).read_text() == before  # original untouched
+
+
+def test_a_missing_chown_capability_is_tolerated_but_a_write_failure_is_reported(tmp_path, monkeypatch):
+    up, _, cfg = make(tmp_path)
+    monkeypatch.setattr(os, "chown", lambda *a: (_ for _ in ()).throw(PermissionError()))
+    up._write_env({"LORAPEDIA_IMAGE": "z"})  # still written
+    assert "LORAPEDIA_IMAGE=z" in Path(cfg.env_file).read_text()
+    monkeypatch.undo()
+    os.chmod(cfg.project_dir, 0o500)
+    try:
+        if os.geteuid() != 0:  # a read-only folder: root would ignore it
+            with pytest.raises(U.UpdateError, match="could not be written"):
+                up._write_env({"LORAPEDIA_IMAGE": "w"})
+    finally:
+        os.chmod(cfg.project_dir, 0o700)
+
+
 def test_run_command_refuses_a_shell_string_and_survives_a_missing_program():
     with pytest.raises(TypeError):
         U.run_command("docker ps; rm -rf /")

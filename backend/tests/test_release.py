@@ -167,6 +167,9 @@ def compose_problems(text: str) -> list[str]:
     for name, s in svc.items():
         if name in ("lorapedia", "updater") and s.get("cap_drop") != ["ALL"]:
             problems.append(f"{name} must drop all capabilities")
+        allowed = {"updater": {"DAC_OVERRIDE", "CHOWN"}}.get(name, set())  # the only capabilities added back, and only here
+        if set(s.get("cap_add", [])) - allowed:
+            problems.append(f"{name} adds capabilities it should not: {sorted(set(s['cap_add']) - allowed)}")
         if name in ("lorapedia", "updater") and not s.get("read_only"):
             problems.append(f"{name} must have a read-only root filesystem")
         socket = any("docker.sock" in str(v) for v in s.get("volumes", []))
@@ -191,6 +194,7 @@ def test_each_compose_rule_fires_on_a_broken_copy():
     assert any("socket" in p for p in compose_problems(good.replace("      - updater-state:/run/lorapedia-updater:ro", "      - /var/run/docker.sock:/var/run/docker.sock\n      - updater-state:/run/lorapedia-updater:ro", 1)))
     assert any("loopback" in p for p in compose_problems(good.replace('"127.0.0.1:8000:8000"', '"8000:8000"')))
     assert any("publish a port" in p for p in compose_problems(good.replace("    # No `ports:`", '    ports: ["8081:8081"]\n    # No `ports:`', 1)))
+    assert any("adds capabilities" in p for p in compose_problems(good.replace("cap_add: [DAC_OVERRIDE, CHOWN]", "cap_add: [SYS_ADMIN]")))
     assert any("read-only" in p for p in compose_problems(good.replace("    read_only: true            # the image's", "    # the image's", 1)))
 
 

@@ -343,12 +343,17 @@ class Updater:
         return reason
 
     def _write_env(self, changes: dict):
-        """Update only the variables named; keep every other line (comments included) exactly as the user wrote it."""
+        """Update only the variables named; keep every other line (comments included) exactly as the user wrote it.
+
+        The updater is root inside its container but runs with every capability dropped except the two it needs here
+        (DAC_OVERRIDE to write in a folder owned by the user, CHOWN to hand the file back to them). The new file takes the
+        owner and mode of the old one (or of the project folder), so the user can still edit it afterwards."""
         try:
             with open(self.cfg.env_file, encoding="utf-8") as f:
                 lines = f.read().splitlines()
+            ref = os.stat(self.cfg.env_file)
         except OSError:
-            lines = []
+            lines, ref = [], None
         for key, value in changes.items():
             if not re.fullmatch(r"[A-Z_]+", key) or "\n" in value:
                 raise UpdateError("Refusing an unsafe .env change.")
@@ -360,10 +365,25 @@ class Updater:
                 lines.append(f"{key}={value}")
         tmp = self.cfg.env_file + ".tmp"
         try:
-            with open(tmp, "w", encoding="utf-8") as f:
+            owner = ref or os.stat(self.cfg.project_dir)
+            try:
+                os.unlink(tmp)  # a leftover from an interrupted run is the user's now: never reopen it, replace it
+            except FileNotFoundError:
+                pass
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)  # exclusive: it is certainly ours
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write("\n".join(lines) + "\n")
+            os.chmod(tmp, (ref.st_mode & 0o777) if ref else 0o644)  # while it is still ours: afterwards we could not
+            try:
+                os.chown(tmp, owner.st_uid, owner.st_gid)  # hand it to the user last
+            except PermissionError:
+                pass  # without CAP_CHOWN the file stays ours; still usable, just not owned by the user
             os.replace(tmp, self.cfg.env_file)
         except OSError as exc:
+            try:
+                os.unlink(tmp)  # never leave a half-made file in the user's folder
+            except OSError:
+                pass
             raise UpdateError(f"The .env file could not be written ({exc}).") from exc
 
 
