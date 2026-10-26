@@ -46,7 +46,7 @@ class ImportZim(BaseModel):
 
 
 class RadioTest(BaseModel):
-    to: str  # a node id the radio has heard, e.g. "!43b6e454"
+    to: str  # a node id the radio has heard, e.g. "!a1b2c3d4"
     text: str
 
 

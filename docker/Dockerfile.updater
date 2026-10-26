@@ -1,0 +1,27 @@
+# The LoRaPedia updater: the one container that holds the Docker socket (see updater/updater.py, "READ THIS FIRST").
+# Build from the repository root:  docker build -f docker/Dockerfile.updater -t lorapedia-updater .
+# Every base is pinned by digest. The Docker CLI and Compose plugin come from the official docker image; cosign from
+# Sigstore's own image.
+FROM docker@sha256:5e6baf67325a79f64ed3bed6863954d5e05d0f3d4e57cbdb14809346814bbfdb AS docker-cli
+FROM gcr.io/projectsigstore/cosign:v3.1.4@sha256:0f06154836d2de34f887a5c273506d52ca43edaa1d9e53e6510fa78a48f69c2d AS cosign
+
+FROM python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
+COPY --from=cosign /ko-app/cosign /usr/local/bin/cosign
+COPY updater/updater.py /app/updater.py
+ARG VERSION=dev
+ARG REVISION=unknown
+LABEL org.opencontainers.image.title="LoRaPedia updater" \
+      org.opencontainers.image.source="https://github.com/TeamHarrisCali/LoRaPedia" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
+WORKDIR /app
+# Runs as root inside the container: it needs the Docker socket, which is root-equivalent on the host whoever holds it.
+# compose.yml drops every capability, makes the root filesystem read-only, and writes only /state and the project's .env.
+EXPOSE 8081
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=4).read()"]
+CMD ["python", "/app/updater.py"]

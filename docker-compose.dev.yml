@@ -1,0 +1,14 @@
+# Build the images from this checkout instead of pulling releases, and do not run the updater:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+services:
+  lorapedia:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        VERSION: dev          # a non-release version: the updater would refuse to touch it anyway
+    image: lorapedia:dev
+    environment:
+      LORAPEDIA_UPDATER_URL: ""
+  updater:
+    profiles: ["disabled"]    # a profile nobody activates, so the updater does not start

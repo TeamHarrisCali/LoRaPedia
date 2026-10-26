@@ -1,0 +1,95 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The tests only read the repository, so the token gets no write access at all.
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "backend[dev]"
+      - name: Tests (the radio, Ollama, GitHub and Docker are all faked)
+        working-directory: backend
+        run: pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Typecheck and build
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit
+          npm run build
+
+  # Builds both images and smoke-tests the app one exactly as compose runs it. Nothing is pushed to a registry.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the images
+        run: |
+          docker build -f docker/Dockerfile --build-arg VERSION=0.0.0-ci -t lorapedia-ci .
+          docker build -f docker/Dockerfile.updater -t lorapedia-updater-ci .
+      - name: The app runs read-only, unprivileged, and becomes healthy
+        run: |
+          set -eu
+          trap 'docker logs lorapedia-ci-app || true; docker rm -f lorapedia-ci-app >/dev/null 2>&1 || true' EXIT
+          docker run -d --name lorapedia-ci-app --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            -p 127.0.0.1:18000:8000 lorapedia-ci
+          for i in $(seq 1 60); do
+            health=$(docker inspect --format '{{.State.Health.Status}}' lorapedia-ci-app)
+            if [ "$health" = healthy ]; then break; fi
+            sleep 2
+          done
+          echo "health: $health"
+          test "$health" = healthy
+          test "$(docker exec lorapedia-ci-app id -u)" = 10001
+          curl -fsS http://127.0.0.1:18000/api/system/info | grep -q '"version"'
+      - name: The updater starts and answers its health probe
+        run: |
+          set -eu
+          trap 'docker rm -f lorapedia-ci-updater >/dev/null 2>&1 || true' EXIT
+          docker run -d --name lorapedia-ci-updater --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            -v lorapedia-ci-state:/state lorapedia-updater-ci
+          for i in $(seq 1 30); do
+            health=$(docker inspect --format '{{.State.Health.Status}}' lorapedia-ci-updater)
+            if [ "$health" = healthy ]; then break; fi
+            sleep 2
+          done
+          test "$health" = healthy
+      - name: The compose files are valid
+        run: |
+          docker compose config -q
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
