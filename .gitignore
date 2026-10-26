@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+.ruff_cache/
+
+# Runtime data: databases, ZIM files, downloads, backups (can be many GB)
+data/
+*.db
+*.db-wal
+*.db-shm
+*.zim
+*.zim.part
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Local environment / editor
+.env
+.env.local
+.DS_Store
+.idea/
+.vscode/
