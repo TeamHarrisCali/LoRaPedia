@@ -5,6 +5,10 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.2.0-beta.5] - 2026-10-28
+
+A test version for the beta channel: the MeshtasticLLM merge, phase 2.
+
 ### Added (beta: the MeshtasticLLM merge, phase 2)
 - **Map.** Every node with a known position drawn on a plain offline grid (Web Mercator) with latitude and longitude lines and a scale
   bar: drag to move, scroll or use the buttons to zoom, arrow keys to pan, search, filter by how recently a node was heard, optional
