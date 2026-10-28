@@ -178,6 +178,8 @@ def compose_problems(text: str) -> list[str]:
     app = svc["lorapedia"]
     if app.get("privileged"):
         problems.append("the app must not be privileged")
+    if app.get("user") in ("0", "0:0", "root") and app.get("entrypoint") != ["lorapedia-entrypoint"]:
+        problems.append("the app may start as root only through lorapedia-entrypoint, so an image without it fails instead of running as root")
     if app.get("user") in ("0", "0:0", "root") and set(app.get("cap_add", [])) != {"SETUID", "SETGID"}:
         problems.append("the app may start as root only to change identity (SETUID and SETGID, nothing else)")
     for rule in app.get("device_cgroup_rules", []):
@@ -322,6 +324,7 @@ def test_the_usb_radio_rules_each_fire_on_a_broken_copy():
     good = read("docker-compose.yml")
     assert any("privileged" in p for p in compose_problems(good.replace("    user: \"0:0\"", "    privileged: true\n    user: \"0:0\"", 1)))
     assert any("identity" in p for p in compose_problems(good.replace("cap_add: [SETUID, SETGID]", "cap_add: [SETUID, SETGID, SYS_ADMIN]", 1)))
+    assert any("fails instead of running as root" in p for p in compose_problems(good.replace('    entrypoint: ["lorapedia-entrypoint"]\n', "", 1)))
     assert any("USB serial" in p for p in compose_problems(good.replace('"c 188:* rmw"', '"a *:* rwm"', 1)))
     assert any("read-only at /hostdev" in p for p in compose_problems(good.replace("/dev:/hostdev:ro ", "/dev:/dev ", 1)))
     assert any("read-only at /hostdev" in p for p in compose_problems(good.replace("/dev:/hostdev:ro ", "/dev:/hostdev ", 1)))

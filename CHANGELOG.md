@@ -20,7 +20,7 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
   the serial devices, becomes the unprivileged user (uid 10001) with those groups, drops every capability, and only then runs the
   app. The app never runs as root. A radio plugged in later whose group was not seen at start needs `docker compose restart
   lorapedia` once. **Existing installs get this by fetching the new `docker-compose.yml`** (the image alone, with an older compose
-  file, runs as before). Untested: rootless Docker and Podman.
+  file, runs as before). Update the image first (Settings → Updates), then use the new compose file: this compose file names the entrypoint, so an older image fails to start instead of silently running as root. Untested: rootless Docker and Podman.
 
 ## [0.1.7] - 2026-10-28
 

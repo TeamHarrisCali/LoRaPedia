@@ -33,6 +33,9 @@ services:
     #   * A radio plugged in LATER whose group was not seen at start needs `docker compose restart lorapedia` once.
     # Not wanted? Delete `user`, `cap_add`, `device_cgroup_rules`, the /dev line and LORAPEDIA_DEVICE_DIR (a WiFi radio needs none).
     user: "0:0"
+    # Named explicitly so that an IMAGE WITHOUT the entrypoint (a release before this one) fails to start instead of silently running
+    # the app as root. Update the image first (Settings -> Updates), then use this file.
+    entrypoint: ["lorapedia-entrypoint"]
     cap_add: [SETUID, SETGID]
     device_cgroup_rules:
       - "c 166:* rmw"          # USB serial, ACM class: boards with native USB (RAK4631, T-Echo, Heltec V3, T-Beam Supreme...)
