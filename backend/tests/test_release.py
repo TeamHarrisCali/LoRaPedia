@@ -235,3 +235,72 @@ def test_ollama_settings_that_were_measured_stay_in_the_compose_file():
     assert env["OLLAMA_CONTEXT_LENGTH"] == "4096"  # 3B model: ~2.4 GB instead of ~4 GB of GPU memory
     assert env["CUDA_CACHE_PATH"].startswith("/root/.ollama/")  # inside the persistent volume (127 s -> 5 s after a recreate)
     assert int(env["CUDA_CACHE_MAXSIZE"]) >= 1 << 30
+
+
+# ---- which branch a tag may be cut from -------------------------------------------------------------------------------
+
+
+def verify_branch_script():
+    wf = yaml.safe_load(read(".github", "workflows", "release.yml"))
+    step = next(s for s in wf["jobs"]["verify"]["steps"] if "merge-base" in s.get("run", ""))
+    return step["run"]
+
+
+def git(cwd, *args):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True,
+                   env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+                        "PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": str(cwd), "GIT_CONFIG_NOSYSTEM": "1"})
+
+
+def run_verify(tmp_path, tag, commit_on, beta_exists=True):
+    """Run the workflow's own branch check against a real repository: `commit_on` is where the tagged commit lives."""
+    origin, work = tmp_path / "origin.git", tmp_path / "work"
+    git(tmp_path, "init", "--bare", "-b", "main", str(origin))
+    git(tmp_path, "clone", str(origin), str(work))
+    git(work, "switch", "-c", "main")
+    (work / "a").write_text("1")
+    git(work, "add", "a")
+    git(work, "commit", "-m", "base")
+    git(work, "push", "origin", "main")
+    if beta_exists:
+        git(work, "switch", "-c", "beta")
+        (work / "b").write_text("2")
+        git(work, "add", "b")
+        git(work, "commit", "-m", "beta work")
+        git(work, "push", "origin", "beta")
+    if commit_on == "neither":
+        git(work, "switch", "-c", "stray")
+        (work / "c").write_text("3")
+        git(work, "add", "c")
+        git(work, "commit", "-m", "stray")
+    elif commit_on == "main":
+        git(work, "switch", "main")
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=work, check=True, capture_output=True, text=True).stdout.strip()
+    git(work, "switch", "main")  # the workflow checks out the tag's commit; only the refs matter to the script
+    out = subprocess.run(["bash", "-e", "-c", verify_branch_script()], cwd=work, capture_output=True, text=True,
+                         env={"TAG": tag, "TAGGED_COMMIT": sha, "PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": str(tmp_path),
+                              "GIT_CONFIG_NOSYSTEM": "1"})
+    return out.returncode
+
+
+@pytest.mark.parametrize("tag,commit_on,passes", [
+    ("v1.0.0", "main", True),
+    ("v1.0.0-beta.2", "main", True),          # a beta of something already merged is fine
+    ("v1.0.0-beta.2", "beta", True),          # the point: a beta may be cut from the beta branch
+    ("v1.0.0", "beta", False),                # a stable release may only come from main
+    ("v1.0.0-rc.1", "beta", False),           # and no other pre-release name opens the beta branch
+    ("v1.0.0-beta.2", "neither", False),
+    ("v1.0.0", "neither", False),
+])
+def test_the_workflow_only_lets_a_beta_tag_come_from_the_beta_branch(tmp_path, tag, commit_on, passes):
+    assert (run_verify(tmp_path, tag, commit_on) == 0) is passes
+
+
+def test_a_beta_tag_with_no_beta_branch_on_the_remote_is_refused(tmp_path):
+    assert run_verify(tmp_path, "v1.0.0-beta.1", "neither", beta_exists=False) != 0
+
+
+def test_the_tag_name_still_reaches_the_branch_check_only_through_an_environment_variable():
+    wf = yaml.safe_load(read(".github", "workflows", "release.yml"))
+    step = next(s for s in wf["jobs"]["verify"]["steps"] if "merge-base" in s.get("run", ""))
+    assert "github.ref_name" not in step["run"] and "${{" not in step["run"] and step["env"]["TAG"] == "${{ github.ref_name }}"

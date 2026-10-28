@@ -410,3 +410,140 @@ def test_api_settings_expose_the_update_switches(tmp_path):
         assert s["wikipedia_update_check"] is True and s["wikipedia_auto_update"] is True
         s["update_check"] = False
         assert c.put("/api/settings", json=s).json()["update_check"] is False
+
+
+# ---- the beta channel ------------------------------------------------------------------------------------------------------
+
+
+def ghb(releases, seen=None, etag='"beta1"'):
+    """GitHub's list of recent releases, which only the beta channel asks for."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert str(req.url) == U.BETA_URL  # a second constant address, never built from input
+        if seen is not None:
+            seen.append(req)
+        return httpx.Response(200, content=json.dumps(releases).encode(), headers={"ETag": etag})
+    return httpx.MockTransport(handler)
+
+
+def beta_settings(**kw):
+    return Settings(update_channel="beta", **kw)
+
+
+@pytest.mark.parametrize("tag,ok", [("v0.2.0-beta.1", True), ("v1.10.3-beta.12", True), ("v0.2.0-beta", False), ("v0.2.0-beta.01", False),
+                                    ("v0.2.0-rc.1", False), ("v0.2.0-beta.1\n", False), ("v0.2.0", False), ("0.2.0-beta.1", False),
+                                    ("v0.2.0-BETA.1", False), (None, False), (5, False)])
+def test_only_exact_beta_tags_are_beta_tags(tag, ok):
+    assert U.valid_beta_tag(tag) is ok
+    assert U.valid_tag(tag) is (tag == "v0.2.0")  # stable-only checks never accept a beta
+
+
+def test_betas_sort_below_their_release_and_numerically():
+    assert U.is_newer("v0.2.0-beta.1", "0.1.5") and U.is_newer("v0.2.0-beta.10", "0.2.0-beta.9") and U.is_newer("v0.2.0", "0.2.0-beta.7")
+    assert not U.is_newer("v0.2.0-beta.7", "0.2.0") and not U.is_newer("v0.2.0-beta.1", "0.2.0-beta.1")
+    assert not U.is_newer("v0.2.0-rc.1", "0.1.5") and U.is_newer("v0.2.0-beta.1", "0.2.0-rc.1")  # other names sort below any beta
+    assert U.parse_version("0.2.0-beta.9") < U.parse_version("0.2.0-beta.10") < U.parse_version("0.2.0")
+
+
+def rel(tag, pre=None, draft=False, body="Notes."):
+    return {"tag_name": tag, "prerelease": ("-" in tag) if pre is None else pre, "draft": draft, "body": body}
+
+
+def test_the_beta_channel_picks_the_highest_acceptable_release_and_builds_its_own_link():
+    r = U.clean_release([rel("v0.3.0-rc.1"), rel("v0.2.0-beta.2"), rel("v0.2.0-beta.10"), rel("v0.1.9"), rel("v9.9.9", draft=True)], "beta")
+    assert r["tag"] == "v0.2.0-beta.10" and r["url"] == "https://github.com/TeamHarrisCali/LoRaPedia/releases/tag/v0.2.0-beta.10"
+    assert U.clean_release([rel("v0.2.0"), rel("v0.2.0-beta.4")], "beta")["tag"] == "v0.2.0"  # the final release outranks its betas
+
+
+@pytest.mark.parametrize("doc", [[rel("v0.2.0-beta.1", pre=False)], [rel("v0.2.0", pre=True)], [rel("v0.2.0-beta.1", draft=True)],
+                                 [rel("nightly")], [rel("v0.2.0-rc.1")], [], {"tag_name": "v0.2.0-beta.1"}, "x", None, [None, 5]])
+def test_the_beta_channel_ignores_what_it_does_not_recognise(doc):
+    assert U.clean_release(doc, "beta") is None
+
+
+def test_the_stable_channel_still_refuses_betas_and_lists():
+    assert U.clean_release(rel("v0.2.0-beta.1")) is None and U.clean_release([rel("v0.2.0")]) is None
+
+
+async def test_a_beta_node_is_offered_a_newer_beta(tmp_path):
+    svc, _ = service(tmp_path, ghb([rel("v9.0.0-beta.2", body="Try the new thing."), rel("v0.1.0")]), settings=beta_settings())
+    assert (await svc.check())["ok"]
+    st = await svc.status()
+    assert st["channel"] == "beta" and st["update_available"] and st["latest"]["tag"] == "v9.0.0-beta.2" and st["latest"]["beta"] is True
+
+
+async def test_a_stable_node_never_asks_for_or_sees_betas(tmp_path):
+    svc, _ = service(tmp_path, gh(release("v9.9.9")))  # the stable address only: asking for the list would fail the helper's assertion
+    await svc.check()
+    st = await svc.status()
+    assert st["channel"] == "stable" and st["latest"]["tag"] == "v9.9.9" and st["latest"]["beta"] is False
+
+
+async def test_switching_channel_forgets_the_old_answer_and_asks_again_at_once(tmp_path):
+    s = Settings()
+    svc, _ = service(tmp_path, gh(release("v9.9.9")), settings=s)
+    await svc.check()
+    assert not svc.due() and svc.latest()["tag"] == "v9.9.9"
+    s.update_channel = "beta"
+    assert svc.latest() is None and svc.due()  # nothing carried over from the stable answer, and the next pass asks right away
+    svc._transport = ghb([rel("v9.9.10-beta.1")])
+    await svc.check()
+    assert svc.latest()["tag"] == "v9.9.10-beta.1" and not svc.due()
+    s.update_channel = "stable"
+    assert svc.latest() is None and svc.due()  # and back: a beta is never shown on the stable channel
+
+
+async def test_an_etag_is_not_reused_for_a_different_channel(tmp_path):
+    seen = []
+    s = Settings()
+    svc, _ = service(tmp_path, gh(release("v9.9.9"), etag='"stable-tag"'), settings=s)
+    await svc.check()
+    s.update_channel = "beta"
+    svc._transport = ghb([rel("v9.9.10-beta.1")], seen=seen)
+    await svc.check()
+    assert "If-None-Match" not in seen[0].headers  # the stable ETag belongs to another address
+
+
+async def test_applying_a_beta_sends_the_word_beta_and_nothing_else(tmp_path):
+    seen = []
+    svc, _ = service(tmp_path, ghb([rel("v9.9.9-beta.1")]), updater=updater_ok(seen), settings=beta_settings())
+    await svc.check()
+    out = await svc.apply()
+    assert out["tag"] == "v9.9.9-beta.1" and out["backup"].startswith(f"pre-update-{__version__}-to-9.9.9-beta.1-")
+    (req,) = [r for r in seen if r.url.path == "/v1/apply"]
+    assert json.loads(req.content) == {"channel": "beta"} and req.url.query == b""
+
+
+async def test_applying_a_stable_release_sends_no_body_as_before(tmp_path):
+    seen = []
+    svc, _ = service(tmp_path, gh(release("v9.9.9")), updater=updater_ok(seen))
+    await svc.check()
+    await svc.apply()
+    (req,) = [r for r in seen if r.url.path == "/v1/apply"]
+    assert req.content == b""  # an older updater that knows nothing of channels keeps working
+
+
+async def test_the_beta_list_may_be_larger_than_a_single_release_but_not_unbounded(tmp_path):
+    big = [rel("v9.9.9-beta.1", body="x" * 10000)] * 30 + [rel("v0.1.0")]
+    assert U.MAX_RESPONSE_BYTES < len(json.dumps(big)) < U.MAX_LIST_BYTES  # too big for one release's cap, fine for the list
+    svc, _ = service(tmp_path, ghb(big), settings=beta_settings())
+    assert (await svc.check())["ok"]
+    (tmp_path / "two").mkdir()
+    svc2, _ = service(tmp_path / "two", ghb([rel("v9.9.9-beta.1", body="x" * (U.MAX_LIST_BYTES + 10))]), settings=beta_settings())
+    assert (await svc2.check())["outcome"] == "too_large"
+
+
+def test_manual_steps_for_the_beta_channel():
+    git = {"kind": "git", "steps": ["git pull", "./run.sh"]}
+    assert U.manual_steps(git, "stable", None) == ["git pull", "./run.sh"]
+    assert U.manual_steps(git, "beta", None) == ["git fetch", "git switch beta", "git pull", "./run.sh"]
+    docker = {"kind": "docker-manual", "steps": ["docker compose pull", "docker compose up -d"]}
+    steps = U.manual_steps(docker, "beta", {"tag": "v0.2.0-beta.3"})
+    assert "ghcr.io/teamharriscali/lorapedia:0.2.0-beta.3" in steps[0] and steps[1] == "docker compose up -d"
+    assert U.manual_steps(docker, "beta", None) == docker["steps"]
+
+
+def test_the_channel_defaults_to_stable_and_an_older_saved_settings_file_still_loads():
+    assert Settings().update_channel == "stable"
+    assert Settings.model_validate_json('{"byte_limit": 150}').update_channel == "stable"
+    with pytest.raises(ValueError):
+        Settings(update_channel="nightly")

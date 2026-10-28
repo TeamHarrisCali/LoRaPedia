@@ -26,11 +26,29 @@ within a day and (Docker + updater) apply it when idle.
 
 A version with a hyphen (`1.0.0-rc.1`) is published as a **pre-release**: it does not move `latest` and installs never update to it.
 
+## Beta releases (the `beta` branch)
+
+Work that is not ready for everyone lives on the `beta` branch, and is published as pre-releases that only nodes on the **beta
+channel** receive (Settings → Updates). Stable releases still come only from `main`.
+
+```bash
+git switch beta                                   # do the work here; CI runs on every push to beta
+# edit backend/lorapedia/__init__.py to X.Y.Z-beta.N and add a "## [X.Y.Z-beta.N]" section to CHANGELOG.md
+python3 scripts/release_check.py check vX.Y.Z-beta.N
+git tag -a vX.Y.Z-beta.N -m "LoRaPedia X.Y.Z-beta.N" && git push origin vX.Y.Z-beta.N
+```
+
+The workflow accepts a tag whose name contains `-beta.` from the tip of `beta` (or `main`); a stable tag must be on `main`, and any
+other pre-release name is refused for the beta branch. The release is marked as a pre-release and `latest` does not move. The app
+and updater accept exactly `vX.Y.Z-beta.N` on the beta channel and nothing else. To release the finished work, merge `beta` into
+`main` (a pull request), set the plain version, and cut a normal release: nodes on the beta channel then move up to it, because a
+final release sorts above its own betas. Keep `main` merged back into `beta` now and then so they do not drift apart.
+
 ## What the workflow does (`.github/workflows/release.yml`)
 
 | Job | Does | Permissions |
 |---|---|---|
-| `verify` | tag is exactly `v` + `__version__`; CHANGELOG has a section for it; the tagged commit is on `main`; makes the notes | read |
+| `verify` | tag is exactly `v` + `__version__`; CHANGELOG has a section for it; the tagged commit is on `main` (a `-beta.N` tag may instead be on `beta`); makes the notes | read |
 | `test` | backend tests and the frontend build | read |
 | `images` | builds and pushes both images (multi-arch), **signs each by digest with cosign (keyless)**, attests build provenance | packages, id-token, attestations (the only job) |
 | `publish` | `gh release create` with the notes and `docker-compose.yml` | contents: write (the only job); **checks nothing out and runs none of our code** |

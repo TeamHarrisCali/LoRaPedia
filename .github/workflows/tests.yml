@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, beta]
   pull_request:
 
 # The tests only read the repository, so the token gets no write access at all.

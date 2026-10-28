@@ -3,10 +3,13 @@
 READ THIS FIRST, it is the whole security story:
 
 * It can do exactly one thing: replace the `lorapedia` service with the NEWEST PUBLISHED RELEASE of REPO (a constant: no request,
-  flag or environment variable changes it). The caller cannot choose a version, a registry or an image: `POST /v1/apply` takes no
-  parameters. A compromised app can therefore at worst trigger an update to a release this repository's own workflow signed.
-* The version comes from GitHub's `releases/latest` of REPO, parsed strictly (a stable `vX.Y.Z` tag, not a draft or pre-release), and
-  must be strictly newer than what is running: it can never downgrade.
+  flag or environment variable changes it). The caller cannot choose a version, a registry or an image: `POST /v1/apply` takes at most
+  a channel, "stable" (the default) or "beta", nothing else. A compromised app can therefore at worst trigger an update to a release
+  this repository's own workflow signed, and only to a beta if it asks for the beta channel.
+* The version comes from GitHub, parsed strictly: on the stable channel `releases/latest`, which must be a stable `vX.Y.Z` tag that is
+  not a draft or pre-release. On the beta channel the newest of the last few releases, which may also be a pre-release tagged exactly
+  `vX.Y.Z-beta.N` and flagged as one (any other pre-release name is refused). It must be strictly newer than what is running
+  (a beta sorts below the release it leads to): it can never downgrade.
 * Before anything runs, the image is pulled and its signature is verified with cosign against the EXACT identity
   `https://github.com/<REPO>/.github/workflows/release.yml@refs/tags/<tag>` issued by GitHub's OIDC provider: only the release
   workflow, run for that exact tag, produces an image that passes. What was verified is what runs: the new image is referenced by
@@ -35,6 +38,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 REPO = "TeamHarrisCali/LoRaPedia"           # the one repository this updates from
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
+BETA_API_URL = f"https://api.github.com/repos/{REPO}/releases?per_page=5"
+CHANNELS = ("stable", "beta")
 IMAGE_REPO = "ghcr.io/teamharriscali/lorapedia"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 SERVICE = "lorapedia"                        # the compose service this replaces
@@ -44,22 +49,36 @@ VERSION_LABEL = "org.opencontainers.image.version"
 
 NUM = r"(0|[1-9][0-9]{0,8})"
 TAG_RE = re.compile(r"\Av" + NUM + r"\." + NUM + r"\." + NUM + r"\Z", re.ASCII)
+BETA_TAG_RE = re.compile(r"\Av" + NUM + r"\." + NUM + r"\." + NUM + r"-beta\." + NUM + r"\Z", re.ASCII)
 DIGEST_RE = re.compile(r"\A[a-z0-9./_-]+@sha256:[0-9a-f]{64}\Z", re.ASCII)
-MAX_RESPONSE = 256 * 1024
+MAX_RESPONSE = 1024 * 1024  # the beta channel reads a short list of releases, each with its notes
 
 
 def valid_tag(tag) -> bool:
+    """A stable release tag, vX.Y.Z."""
     return isinstance(tag, str) and TAG_RE.match(tag) is not None
 
 
+def valid_beta_tag(tag) -> bool:
+    """A beta pre-release tag, vX.Y.Z-beta.N and nothing else."""
+    return isinstance(tag, str) and BETA_TAG_RE.match(tag) is not None
+
+
 def parse(version: str):
-    """(major, minor, patch) for a strict X.Y.Z, else None. Pre-release and dev versions are deliberately not updatable."""
-    m = re.fullmatch(NUM + r"\." + NUM + r"\." + NUM, version or "", re.ASCII)
-    return tuple(int(x) for x in m.groups()) if m else None
+    """A sortable key for a strict X.Y.Z or X.Y.Z-beta.N, else None. A beta sorts below the release it leads to, and beta.10 above
+    beta.9. Any other pre-release or a dev version is deliberately not updatable."""
+    m = re.fullmatch(NUM + r"\." + NUM + r"\." + NUM + r"(?:-beta\." + NUM + r")?", version or "", re.ASCII)
+    if not m:
+        return None
+    major, minor, patch, beta = m.groups()
+    return (int(major), int(minor), int(patch), 1 if beta is None else 0, int(beta or 0))
 
 
 def is_newer(tag: str, current: str) -> bool:
-    return valid_tag(tag) and parse(tag[1:]) is not None and parse(current) is not None and parse(tag[1:]) > parse(current)
+    if not (valid_tag(tag) or valid_beta_tag(tag)):
+        return False
+    a, b = parse(tag[1:]), parse(current)
+    return a is not None and b is not None and a > b
 
 
 def signing_identity(tag: str) -> str:
@@ -212,34 +231,57 @@ class Updater:
                         what="Reading the running version")
 
     # ---- GitHub ---------------------------------------------------------------------------------------------------
-    def latest_tag(self) -> str:
+    def _github_json(self, url: str):
         try:
-            status, body = self._get(API_URL)
+            status, body = self._get(url)
         except Exception as exc:
             raise UpdateError(f"GitHub could not be reached ({type(exc).__name__}).") from exc
         if status != 200:
             raise UpdateError(f"GitHub answered HTTP {status}.")
         try:
-            data = json.loads(body.decode("utf-8"))
+            return json.loads(body.decode("utf-8"))
         except ValueError as exc:
             raise UpdateError("GitHub's answer was not understood.") from exc
+
+    def latest_tag(self, channel: str = "stable") -> str:
+        if channel == "beta":
+            return self._newest_on_beta()
+        data = self._github_json(API_URL)
         if not isinstance(data, dict) or data.get("draft") is not False or data.get("prerelease") is not False \
                 or not valid_tag(data.get("tag_name")):
             raise UpdateError("GitHub's latest release is not a stable release this updater accepts.")
         return data["tag_name"]
 
+    def _newest_on_beta(self) -> str:
+        """The highest accepted release among the latest few: a stable release, or a beta that GitHub flags as a pre-release."""
+        data = self._github_json(BETA_API_URL)
+        best = None
+        for entry in (data if isinstance(data, list) else [])[:20]:
+            if not isinstance(entry, dict) or entry.get("draft") is not False:
+                continue
+            tag, pre = entry.get("tag_name"), entry.get("prerelease")
+            if not ((valid_tag(tag) and pre is False) or (valid_beta_tag(tag) and pre is True)):
+                continue
+            if best is None or parse(tag[1:]) > parse(best[1:]):
+                best = tag
+        if best is None:
+            raise UpdateError("GitHub has no release this updater accepts on the beta channel.")
+        return best
+
     # ---- the update -----------------------------------------------------------------------------------------------
-    def start_apply(self) -> dict:
+    def start_apply(self, channel: str = "stable") -> dict:
         """Begin an update on a background thread and return at once. Raises UpdateError if one is already running."""
+        if channel not in CHANNELS:
+            raise UpdateError("Unknown release channel.")
         if not self._apply_lock.acquire(blocking=False):
             raise UpdateError("An update is already running.")
         self._set(state="checking", message="Checking for the newest release", target=None)
-        threading.Thread(target=self._apply_thread, daemon=True, name="apply").start()
+        threading.Thread(target=self._apply_thread, args=(channel,), daemon=True, name="apply").start()
         return self.status()
 
-    def _apply_thread(self):
+    def _apply_thread(self, channel: str = "stable"):
         try:
-            self.apply()
+            self.apply(channel)
         except UpdateError as exc:
             self._set(state="failed", message=str(exc))
         except Exception as exc:  # a bug must not leave the app waiting for ever
@@ -247,17 +289,17 @@ class Updater:
         finally:
             self._apply_lock.release()
 
-    def apply(self):
+    def apply(self, channel: str = "stable"):
         project = self.project()
         container = self.app_container(project)
         current = self.running_version(container)
         self._set(current=current)
         if parse(current) is None:
             raise UpdateError(f"The running image is version {current!r}, not a release, so it is not updated automatically.")
-        tag = self.latest_tag()
+        tag = self.latest_tag(channel)
         self._set(target=tag[1:])
         if not is_newer(tag, current):
-            self._set(state="idle", message=f"Already on the newest release ({current}).")
+            self._set(state="idle", message=f"Already on the newest release ({current})" + (" on the beta channel." if channel == "beta" else "."))
             return
         if tag[1:] in self.status()["failed_versions"]:
             raise UpdateError(f"{tag} was tried before and failed, so it is not tried again. A newer release will be.")
@@ -452,8 +494,22 @@ def make_handler(updater: Updater, token: str):
                 return self._send(401, {"error": "unauthorized"})
             if self.path != "/v1/apply":
                 return self._send(404, {"error": "not found"})
+            channel = "stable"
             try:
-                self._send(202, updater.start_apply())
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                return self._send(400, {"error": "bad request"})
+            if length:
+                try:
+                    body = json.loads(self.rfile.read(length).decode("utf-8")) if 0 < length <= 256 else None
+                except ValueError:
+                    body = None
+                # The only thing a caller may say is which channel. Anything else is refused, not ignored.
+                if not isinstance(body, dict) or set(body) != {"channel"} or body["channel"] not in CHANNELS:
+                    return self._send(400, {"error": "bad request"})
+                channel = body["channel"]
+            try:
+                self._send(202, updater.start_apply(channel))
             except UpdateError as exc:
                 self._send(409, {"error": str(exc)})
 

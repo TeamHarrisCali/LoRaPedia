@@ -250,6 +250,9 @@ only your IP address and the version `lorapedia/0.1.0` are visible to GitHub). I
 | Docker without the updater | You are told, with the two commands to run (`docker compose pull`, `docker compose up -d`). |
 | `./run.sh` / source checkout | You are told, with the commands (`git pull`, `./run.sh`). |
 
+**Beta channel.** *Settings → Updates → Release channel → Beta* also offers test versions (`vX.Y.Z-beta.N`) built from the `beta`
+branch, checked and signed like any release. Leaving it never downgrades. See [docs/UPDATING.md](docs/UPDATING.md#the-beta-channel).
+
 **How the automatic update is made safe.** The app never touches Docker. A separate, minimal *updater* container holds the
 Docker socket, and it can do exactly one thing: install the newest published release of *this* repository.
 - It takes **no instructions** from the app: it looks up the release on GitHub itself, so a compromised app cannot make it

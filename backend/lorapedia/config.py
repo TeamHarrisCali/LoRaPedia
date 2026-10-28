@@ -51,6 +51,7 @@ class Settings(BaseModel):
     queue_max: int = Field(20, ge=1)
 
     # Updates (Settings -> Updates). The checks are the only things LoRaPedia does online without being asked.
+    update_channel: Literal["stable", "beta"] = "stable"  # "beta": also receive pre-releases (vX.Y.Z-beta.N) from the beta branch
     update_check: bool = True           # look for a new LoRaPedia release on GitHub about once a day
     auto_update: bool = True            # apply it when the node is quiet (Docker installs with the updater only)
     wikipedia_update_check: bool = True    # look for a newer edition of each installed Wikipedia package

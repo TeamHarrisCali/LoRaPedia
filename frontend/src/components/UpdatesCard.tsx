@@ -4,7 +4,7 @@ import { timeAgo } from "../lib/format";
 import { useToast } from "../lib/toast";
 import type { AppUpdateStatus, Settings, WikiUpdateStatus } from "../lib/types";
 import { usePoll } from "../lib/usePoll";
-import { Badge, Button, Card, Help, SectionTitle, Toggle } from "./ui";
+import { Badge, Button, Card, Field, Help, SectionTitle, Toggle } from "./ui";
 
 const ACTIVE = ["checking", "pulling", "verifying", "applying", "waiting"];
 
@@ -53,7 +53,7 @@ export function UpdatesCard({ draft, set }: { draft: Settings; set: (p: Partial<
       {a && (
         <div role="status" className="mb-3 text-sm">
           {a.update_available && a.latest ? (
-            <p><Badge tone="amber">Update available</Badge> <span className="ml-1">Version <b>{a.latest.tag.slice(1)}</b> is out. <a className="underline" href={a.latest.url} target="_blank" rel="noopener noreferrer">Release notes</a></span></p>
+            <p><Badge tone="amber">Update available</Badge> {a.latest.beta && <Badge tone="teal">Beta</Badge>} <span className="ml-1">Version <b>{a.latest.tag.slice(1)}</b> is out. <a className="underline" href={a.latest.url} target="_blank" rel="noopener noreferrer">Release notes</a></span></p>
           ) : <p className="text-muted">{a.latest ? "You are up to date." : "No release found yet."} {a.checked ? `Checked ${timeAgo(a.checked)}.` : "Not checked yet."}</p>}
           {a.latest?.notes && a.update_available && <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-bg p-3 font-mono text-xs">{a.latest.notes}</pre>}
           {a.last_error && <p className="mt-1 text-danger" role="alert">{a.last_error}</p>}
@@ -79,6 +79,15 @@ export function UpdatesCard({ draft, set }: { draft: Settings; set: (p: Partial<
         {confirm && <span className="flex flex-wrap items-center gap-2 text-sm">LoRaPedia restarts for about a minute. A backup is made first.
           <Button variant="primary" busy={busy === "apply"} onClick={() => void applyApp()}>Update</Button><Button variant="ghost" onClick={() => setConfirm(false)}>Cancel</Button></span>}
       </div>
+      <Field label="Release channel" htmlFor="up-channel" help={draft.update_channel === "beta"
+        ? "Beta also receives test versions from the beta branch before they are released. They may have bugs and unfinished features. A backup of your settings and log is made before every update and a version that fails to start is rolled back, but your Wikipedia index is not backed up. Choosing Stable again never downgrades: you stay where you are until a newer stable release arrives."
+        : "Stable only receives finished releases. Choose Beta to try new features early."}>
+        <select id="up-channel" className="field max-w-xs" value={draft.update_channel} onChange={(e) => set({ update_channel: e.target.value as Settings["update_channel"] })}>
+          <option value="stable">Stable (recommended)</option>
+          <option value="beta">Beta (test versions)</option>
+        </select>
+      </Field>
+      {a && a.channel !== draft.update_channel && <p role="status" className="mb-3 text-sm text-amber-text">Save, then press Check now to look on the {draft.update_channel} channel.</p>}
       <Toggle checked={draft.update_check} onChange={(v) => set({ update_check: v })} label="Look for new LoRaPedia releases"
         help="About once a day it asks github.com for this project's latest release. Nothing else is sent, no telemetry." />
       <Toggle checked={draft.auto_update} onChange={(v) => set({ auto_update: v })} label="Install them automatically"

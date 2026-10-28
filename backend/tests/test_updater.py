@@ -74,11 +74,13 @@ class FakeDocker:
         raise AssertionError(f"unexpected command {argv}")
 
 
-def github(tag="v0.2.0", status=200, draft=False, pre=False, boom=False):
+def github(tag="v0.2.0", status=200, draft=False, pre=False, boom=False, releases=None):
     def get(url, timeout=15.0):
-        assert url == f"https://api.github.com/repos/TeamHarrisCali/LoRaPedia/releases/latest"
         if boom:
             raise OSError("offline")
+        if releases is not None and url.startswith("https://api.github.com/repos/TeamHarrisCali/LoRaPedia/releases?"):
+            return status, json.dumps(releases).encode()  # the beta channel's list
+        assert url == f"https://api.github.com/repos/TeamHarrisCali/LoRaPedia/releases/latest"
         return status, json.dumps({"tag_name": tag, "draft": draft, "prerelease": pre}).encode()
     return get
 
@@ -92,7 +94,7 @@ def make(tmp_path, tag="v0.2.0", **kw):
     def sleep(s):
         clock[0] += s
 
-    gh_kw = {k: kw.pop(k) for k in ("status", "draft", "pre", "boom") if k in kw}
+    gh_kw = {k: kw.pop(k) for k in ("status", "draft", "pre", "boom", "releases") if k in kw}
     fake = FakeDocker(cfg, **kw)
     fake.target = tag[1:]
     up = U.Updater(cfg, run=fake, get=github(tag, **gh_kw), clock=lambda: clock[0], sleep=sleep)
@@ -128,6 +130,91 @@ def test_latest_tag_refuses_anything_but_a_stable_release(tmp_path, kw, fragment
     up, _, _ = make(tmp_path, **kw)
     with pytest.raises(U.UpdateError, match=fragment):
         up.latest_tag()
+
+
+# ---- the beta channel ---------------------------------------------------------------------------------------------
+
+
+def rel(tag, pre=None, draft=False):
+    return {"tag_name": tag, "prerelease": ("-" in tag) if pre is None else pre, "draft": draft}
+
+
+@pytest.mark.parametrize("tag,ok", [("v0.2.0-beta.1", True), ("v1.10.3-beta.12", True), ("v0.2.0-beta.0", True),
+                                    ("v0.2.0-beta", False), ("v0.2.0-beta.", False), ("v0.2.0-beta.01", False), ("v0.2.0-rc.1", False),
+                                    ("v0.2.0-beta.1-x", False), ("v0.2.0-beta.1\n", False), ("v0.2.0", False), ("0.2.0-beta.1", False),
+                                    ("v0.2.0-BETA.1", False), ("", False), (None, False)])
+def test_only_exact_beta_tags_are_beta_tags(tag, ok):
+    assert U.valid_beta_tag(tag) is ok
+
+
+def test_a_beta_sorts_below_the_release_it_leads_to_and_numerically():
+    assert U.is_newer("v0.2.0-beta.1", "0.1.5") and U.is_newer("v0.2.0-beta.10", "0.2.0-beta.9")
+    assert U.is_newer("v0.2.0", "0.2.0-beta.7")  # the final release replaces its own beta
+    assert not U.is_newer("v0.2.0-beta.7", "0.2.0")  # a beta is never an update from the release it leads to
+    assert not U.is_newer("v0.2.0-beta.1", "0.2.0-beta.1") and not U.is_newer("v0.1.9", "0.2.0-beta.1")
+    assert not U.is_newer("v0.2.0-rc.1", "0.1.5") and not U.is_newer("v0.2.0-beta.1", "0.2.0-rc.1")  # other pre-release names are not updatable
+    assert U.parse("0.2.0-rc.1") is None and U.parse("0.2.0-beta.3") is not None  # a node running a beta can be updated
+
+
+def test_the_beta_channel_takes_the_newest_accepted_release(tmp_path):
+    releases = [rel("v0.3.0-rc.1"), rel("v0.2.0-beta.2"), rel("v0.2.0-beta.10"), rel("v0.2.0-beta.9"), rel("v0.1.9"), rel("v9.9.9", draft=True)]
+    up, _, _ = make(tmp_path, releases=releases)
+    assert up.latest_tag("beta") == "v0.2.0-beta.10"
+
+
+def test_a_stable_release_wins_on_the_beta_channel_once_it_is_newer_than_the_betas(tmp_path):
+    up, _, _ = make(tmp_path, releases=[rel("v0.2.0"), rel("v0.2.0-beta.4"), rel("v0.1.9")])
+    assert up.latest_tag("beta") == "v0.2.0"
+
+
+@pytest.mark.parametrize("releases", [
+    [rel("v0.2.0-beta.1", pre=False)],              # a beta tag GitHub does not flag as a pre-release is not trusted
+    [rel("v0.2.0", pre=True)],                       # and neither is a stable tag flagged as one
+    [rel("v0.2.0-beta.1", draft=True)], [rel("nightly")], [rel("v0.2.0-rc.1")], [], {"tag_name": "v0.2.0"}, "text", [None, 5, "x"]])
+def test_the_beta_channel_refuses_what_it_does_not_recognise(tmp_path, releases):
+    up, _, _ = make(tmp_path, releases=releases)
+    with pytest.raises(U.UpdateError, match="beta channel"):
+        up.latest_tag("beta")
+
+
+def test_the_stable_channel_never_sees_a_beta_even_when_one_is_newer(tmp_path):
+    up, _, _ = make(tmp_path, tag="v0.2.0-beta.1", pre=True, releases=[rel("v0.2.0-beta.1")])
+    with pytest.raises(U.UpdateError, match="stable"):
+        up.latest_tag("stable")
+
+
+def test_a_beta_is_verified_against_its_own_exact_tag_like_any_release(tmp_path):
+    up, fake, cfg = make(tmp_path, current="0.1.5", releases=[rel("v0.2.0-beta.3")])
+    fake.target = "0.2.0-beta.3"
+    up.apply("beta")
+    s = up.status()
+    assert (s["state"], s["current"], s["target"]) == ("done", "0.2.0-beta.3", "0.2.0-beta.3")
+    assert next(c for c in fake.calls if c[:2] == ["docker", "pull"])[-1] == f"{U.IMAGE_REPO}:0.2.0-beta.3"
+    verify = next(c for c in fake.calls if c[0] == "cosign")
+    assert verify[verify.index("--certificate-identity") + 1] == U.signing_identity("v0.2.0-beta.3")
+
+
+def test_a_node_on_a_beta_moves_to_the_next_beta_and_then_to_the_release(tmp_path):
+    up, fake, _ = make(tmp_path, current="0.2.0-beta.1", releases=[rel("v0.2.0-beta.2")])
+    fake.target = "0.2.0-beta.2"
+    up.apply("beta")
+    assert up.status()["state"] == "done"
+    up2, fake2, _ = make(tmp_path / "two", current="0.2.0-beta.2", tag="v0.2.0")  # the stable channel offers the final release
+    up2.apply("stable")
+    assert up2.status()["state"] == "done" and up2.status()["target"] == "0.2.0"
+
+
+def test_leaving_the_beta_channel_never_downgrades(tmp_path):
+    up, fake, _ = make(tmp_path, current="0.2.0-beta.4", tag="v0.1.9")  # stable is older than the beta being run
+    up.apply("stable")
+    s = up.status()
+    assert s["state"] == "idle" and fake.up_calls == 0 and "Already on the newest" in s["message"]
+
+
+def test_the_beta_channel_is_not_used_unless_asked_for(tmp_path):
+    up, fake, _ = make(tmp_path, releases=[rel("v0.3.0-beta.1")])  # stable 0.2.0 is on offer; a newer beta exists
+    up.apply()
+    assert up.status()["target"] == "0.2.0"
 
 
 # ---- the happy path -----------------------------------------------------------------------------------------------
@@ -350,9 +437,10 @@ def api(tmp_path):
     server = ThreadingHTTPServer(("127.0.0.1", 0), U.make_handler(up, token))
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
-    def call(method, path, auth=True):
+    def call(method, path, auth=True, body=None, raw=None):
         conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
-        conn.request(method, path, headers={"Authorization": f"Bearer {token}"} if auth else {})
+        data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
+        conn.request(method, path, body=data, headers={"Authorization": f"Bearer {token}"} if auth else {})
         r = conn.getresponse()
         return r.status, json.loads(r.read() or b"{}")
 
@@ -404,3 +492,30 @@ def test_token_is_created_once_long_random_and_readable_by_the_app(tmp_path):
     mode = stat.S_IMODE(os.stat(os.path.join(state, "token")).st_mode)
     assert mode & 0o004  # world-readable inside the private volume so the app's uid can read it
     assert not mode & 0o022  # but never writable by anyone else
+
+
+def test_api_channel_is_the_only_thing_a_caller_may_choose(api):
+    call, up, fake, cfg, token = api
+    for bad in ({"channel": "nightly"}, {"version": "v9.9.9"}, {"channel": "beta", "image": "evil"}, {"channel": None}, [], "beta", 5):
+        assert call("POST", "/v1/apply", body=bad)[0] == 400  # a version, an image or anything else is refused, not ignored
+    assert call("POST", "/v1/apply", raw=b"not json")[0] == 400
+    assert call("POST", "/v1/apply", raw=b"{" + b" " * 300 + b"}")[0] == 400
+    assert up.status()["state"] == "idle" and fake.up_calls == 0  # nothing started
+
+
+def test_api_a_beta_request_installs_a_beta_and_no_body_means_stable(tmp_path):
+    for body, expected in (({"channel": "beta"}, "0.3.0-beta.1"), (None, "0.2.0")):
+        up, fake, cfg = make(tmp_path / (expected or "x"), releases=[rel("v0.3.0-beta.1"), rel("v0.2.0")])
+        fake.target = expected
+        token = U.load_or_create_token(cfg.state_dir)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), U.make_handler(up, token))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+        conn.request("POST", "/v1/apply", body=json.dumps(body).encode() if body else None, headers={"Authorization": f"Bearer {token}"})
+        assert conn.getresponse().status == 202
+        for _ in range(200):
+            if up.status()["state"] in ("done", "failed", "rolled_back"):
+                break
+            threading.Event().wait(0.02)
+        server.shutdown()
+        assert up.status()["state"] == "done" and up.status()["target"] == expected

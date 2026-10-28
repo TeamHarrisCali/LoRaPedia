@@ -10,6 +10,28 @@
 
 Everything is under **Settings → Updates**. "Check now" works even with the daily checks off.
 
+## The beta channel
+
+By default a node only receives finished (**stable**) releases. In **Settings → Updates → Release channel** you can choose **Beta**,
+which also receives test versions, tagged `vX.Y.Z-beta.N`, built from this project's `beta` branch before they are released. Use it to
+try new features early. It is meant for a node you can afford to break.
+
+- A beta is published exactly like a release (signed images, a GitHub *pre-release*) and is checked exactly like one: the updater
+  accepts only a tag of the form `vX.Y.Z-beta.N` that GitHub flags as a pre-release, and only if its signature matches that exact tag.
+  Any other pre-release name is ignored, and `latest` never points at a beta.
+- A beta sorts **below** the release it leads to (`0.2.0-beta.3` < `0.2.0`), so a node on the beta channel is moved to the final
+  `0.2.0` when it appears, and a stable node never sees any beta.
+- A backup of your settings and question log is made before every update, and a version that does not start is rolled back. Your
+  Wikipedia files and search index are **not** backed up, and a beta may add new data files; read its release notes.
+- **Leaving the beta channel never downgrades.** Choose Stable again and you stay on the beta you have until a stable release newer
+  than it arrives. To go back sooner, use the roll-back below.
+- Save the setting, then press **Check now**. For installs that cannot update themselves the page shows the matching commands
+  (`git switch beta` for a source checkout; the image to put in `.env` for Docker without the updater).
+- The request the app sends the updater carries one word, `beta`, and nothing else (no version, no image). The updater refuses any other
+  field. A compromised app could therefore at worst move the node to a signed beta of this repository, never to anything else.
+- An older updater container simply ignores the channel and keeps offering stable releases, which is safe. To get betas, pull the
+  new one: `docker compose pull updater && docker compose up -d updater`.
+
 ## What an update cannot change
 
 An automatic update replaces the `lorapedia` container's image. It cannot change **your** `docker-compose.yml`, the **updater**

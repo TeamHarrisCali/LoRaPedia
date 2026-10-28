@@ -2,13 +2,16 @@
 
 READ THIS FIRST, it is the whole security story of this file:
 
-* The only thing the CHECK ever fetches is one small JSON document, `releases/latest` of REPO (a constant: no request, setting or
-  environment variable changes it), over HTTPS with the certificate verified, redirects refused, a timeout and a size cap. It is
-  parsed strictly: the tag must be `vX.Y.Z` and nothing else from it is trusted. Release notes are shown as plain text only, and the
-  only link ever given to the page is built from the validated tag. Nothing is sent but the GET (a User-Agent with the version).
+* The only thing the CHECK ever fetches is one small JSON document of REPO (a constant: no request, setting or environment variable
+  changes it): `releases/latest` on the stable channel, or the last few releases on the beta channel (Settings -> Updates, off by
+  default), over HTTPS with the certificate verified, redirects refused, a timeout and a size cap. It is parsed strictly: the tag must
+  be `vX.Y.Z` (or, on the beta channel only, `vX.Y.Z-beta.N` flagged by GitHub as a pre-release) and nothing else from it is trusted.
+  Release notes are shown as plain text only, and the only link ever given to the page is built from the validated tag. Nothing is
+  sent but the GET (a User-Agent with the version).
 * This process NEVER applies an update itself and never holds the Docker socket. In a Docker install it asks the separate updater
-  container (updater/updater.py) over the private compose network with a shared token. The request carries NO parameters: the
-  updater decides what to install from GitHub itself, verifies its signature, and rolls back on failure. Anything that is not a
+  container (updater/updater.py) over the private compose network with a shared token. The request carries NO version or image,
+  only (on the beta channel) the word "beta": the updater decides what to install from GitHub itself, verifies its signature, and
+  rolls back on failure. Anything that is not a
   Docker install is only TOLD that a release exists, and how to update by hand.
 * Before asking, a verified backup of the settings and log database is made; if that fails, nothing is asked.
 * The periodic check is on by default and can be switched off in Settings -> Updates ("Check now" always works).
@@ -32,6 +35,8 @@ log = logging.getLogger(__name__)
 
 REPO = "TeamHarrisCali/LoRaPedia"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
+BETA_URL = f"https://api.github.com/repos/{REPO}/releases?per_page=5"
+CHANNELS = ("stable", "beta")
 RELEASE_URL_PREFIX = f"https://github.com/{REPO}/releases/"
 USER_AGENT = f"lorapedia/{__version__}"
 
@@ -40,6 +45,7 @@ RETRY_UNREACHED_S = 3 * 3600     # after an attempt that never reached GitHub (o
 MIN_GAP_S = 5                    # "Check now" cannot be repeated faster than this
 MAX_BLOCK_S = 3600               # how long a "rate limited" answer can hold the check back
 MAX_RESPONSE_BYTES = 256 * 1024
+MAX_LIST_BYTES = 1024 * 1024     # the beta channel reads a short list of releases, each with its notes
 NOTES_MAX = 1500
 IDLE_BEFORE_AUTO_APPLY_S = 300   # no question answered for this long before an automatic update is started
 BACKUPS_KEPT = 5
@@ -49,6 +55,7 @@ KEY_LAST = "update_last"         # the last update we asked for
 
 NUM = r"(0|[1-9][0-9]{0,8})"
 TAG_RE = re.compile(r"\Av" + NUM + r"\." + NUM + r"\." + NUM + r"\Z", re.ASCII)
+BETA_TAG_RE = re.compile(r"\Av" + NUM + r"\." + NUM + r"\." + NUM + r"-beta\." + NUM + r"\Z", re.ASCII)
 VERSION_RE = re.compile(r"\A" + NUM + r"\." + NUM + r"\." + NUM + r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?\Z", re.ASCII)
 _CONTROL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f​-‏‪-‮⁦-⁩﻿]")
 
@@ -59,21 +66,34 @@ class UpdateError(ValueError):
 
 # ---- versions ---------------------------------------------------------------------------------------------------------
 def valid_tag(tag) -> bool:
+    """A stable release tag, vX.Y.Z."""
     return isinstance(tag, str) and TAG_RE.match(tag) is not None
 
 
+def valid_beta_tag(tag) -> bool:
+    """A beta pre-release tag, vX.Y.Z-beta.N and nothing else."""
+    return isinstance(tag, str) and BETA_TAG_RE.match(tag) is not None
+
+
+def valid_release_tag(tag) -> bool:
+    return valid_tag(tag) or valid_beta_tag(tag)
+
+
 def parse_version(text):
-    """Sortable key for X.Y.Z[-pre], or None. A release sorts above its own pre-releases."""
+    """Sortable key for X.Y.Z[-pre], or None. A release sorts above its own pre-releases, and beta.10 above beta.9."""
     m = VERSION_RE.match(text) if isinstance(text, str) else None
     if not m:
         return None
     major, minor, patch, pre = int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4)
-    return (major, minor, patch, 1 if pre is None else 0, pre or "")
+    if pre is None:
+        return (major, minor, patch, 1, 0, "")
+    beta = re.fullmatch(r"beta\." + NUM, pre, re.ASCII)
+    return (major, minor, patch, 0, int(beta.group(1)), "") if beta else (major, minor, patch, 0, -1, pre)  # other names sort below any beta
 
 
 def is_newer(tag, current=None) -> bool:
-    """True if release `tag` (vX.Y.Z) is strictly higher than `current` (default: this program). Unparsable is not newer."""
-    if not valid_tag(tag):
+    """True if release `tag` (vX.Y.Z or vX.Y.Z-beta.N) is strictly higher than `current` (default: this program). Unparsable is not newer."""
+    if not valid_release_tag(tag):
         return False
     a, b = parse_version(tag[1:]), parse_version(__version__ if current is None else current)
     return a is not None and b is not None and a > b
@@ -88,13 +108,28 @@ def plain_text(value, limit=NOTES_MAX) -> str:
 
 
 def release_url(tag: str) -> str:
-    if not valid_tag(tag):
+    if not valid_release_tag(tag):
         raise UpdateError("That is not a release tag.")
     return RELEASE_URL_PREFIX + "tag/" + tag
 
 
-def clean_release(data):
-    """{tag, url, notes} for a published, stable release with a valid tag, else None. The document's own html_url is ignored."""
+def clean_release(data, channel: str = "stable"):
+    """{tag, url, notes} for a published release with a valid tag, else None. The document's own html_url is ignored.
+
+    stable: one release document, not a draft or pre-release, tagged vX.Y.Z.
+    beta: the list of recent releases; the highest acceptable one, which is a stable release or a vX.Y.Z-beta.N that GitHub
+    flags as a pre-release (a beta tag not flagged, or a stable tag flagged as one, is not trusted)."""
+    if channel == "beta":
+        best = None
+        for entry in (data if isinstance(data, list) else [])[:20]:
+            if not isinstance(entry, dict) or entry.get("draft") is not False:
+                continue
+            tag, pre = entry.get("tag_name"), entry.get("prerelease")
+            if not ((valid_tag(tag) and pre is False) or (valid_beta_tag(tag) and pre is True)):
+                continue
+            if best is None or parse_version(tag[1:]) > parse_version(best["tag_name"][1:]):
+                best = entry
+        return None if best is None else {"tag": best["tag_name"], "url": release_url(best["tag_name"]), "notes": plain_text(best.get("body"))}
     if not isinstance(data, dict) or data.get("draft") is not False or data.get("prerelease") is not False:
         return None
     tag = data.get("tag_name")
@@ -105,7 +140,7 @@ def clean_release(data):
 
 # ---- the one network call -----------------------------------------------------------------------------------------------
 async def fetch_latest(etag: str | None = None, now: float | None = None,
-                       transport: httpx.AsyncBaseTransport | None = None) -> dict:
+                       transport: httpx.AsyncBaseTransport | None = None, channel: str = "stable") -> dict:
     """Ask GitHub for the latest release and describe what happened. Never raises. Returns a dict:
     outcome  ok | not_modified | no_release | rate_limited | offline | certificate | bad_response | too_large | error
     reached  True if GitHub answered at all (it decides how soon the periodic check may ask again)."""
@@ -117,11 +152,12 @@ async def fetch_latest(etag: str | None = None, now: float | None = None,
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0), follow_redirects=False, transport=transport,
                                      trust_env=False) as client:  # trust_env=False: never pick up a ~/.netrc or proxy credentials
-            async with client.stream("GET", API_URL, headers=headers) as resp:
+            cap = MAX_LIST_BYTES if channel == "beta" else MAX_RESPONSE_BYTES
+            async with client.stream("GET", BETA_URL if channel == "beta" else API_URL, headers=headers) as resp:
                 body, status, rh = b"", resp.status_code, resp.headers
                 async for chunk in resp.aiter_bytes():
                     body += chunk
-                    if len(body) > MAX_RESPONSE_BYTES:
+                    if len(body) > cap:
                         out.update(outcome="too_large", reached=True,
                                    message="GitHub's answer was far bigger than expected, so it was ignored.")
                         return out
@@ -161,7 +197,7 @@ async def fetch_latest(etag: str | None = None, now: float | None = None,
     else:
         try:
             import json
-            release = clean_release(json.loads(body.decode("utf-8")))
+            release = clean_release(json.loads(body.decode("utf-8")), channel)
         except (ValueError, UnicodeDecodeError):
             release = None
         if release is None:
@@ -201,6 +237,18 @@ def detect_install(environ=None, token_exists: Callable[[str], bool] = os.path.i
                 "reason": "This runs from a source checkout, which is updated by hand. In the project folder:"}
     return {"kind": "other", "can_apply": False, "steps": [],
             "reason": "This installation is not Docker or a git checkout, so it cannot update itself. Replace it the way you installed it."}
+
+
+def manual_steps(install: dict, channel: str, latest: dict | None) -> list[str]:
+    """What to type for an install that cannot update itself, adjusted for the beta channel (a beta is never `latest`)."""
+    steps = list(install["steps"])
+    if channel != "beta":
+        return steps
+    if install["kind"] == "git":
+        return ["git fetch", "git switch beta", "git pull", "./run.sh"]
+    if install["kind"] == "docker-manual" and latest:
+        return [f"Set LORAPEDIA_IMAGE=ghcr.io/teamharriscali/lorapedia:{latest['tag'][1:]} in the .env file", "docker compose up -d"]
+    return steps
 
 
 # ---- the service the app owns ---------------------------------------------------------------------------------------------
@@ -243,11 +291,19 @@ class UpdateService:
         self.store.set_json(KEY_STATE, state)
         return state
 
+    def channel(self) -> str:
+        return self._settings().update_channel
+
     def latest(self):
-        data = self._state().get("latest")
-        if isinstance(data, dict) and valid_tag(data.get("tag")):
-            return {"tag": data["tag"], "url": release_url(data["tag"]), "notes": plain_text(data.get("notes"))}
-        return None
+        """The release the last check found, if it was a check on the channel in use now (switching channel forgets the old answer)."""
+        state = self._state()
+        data = state.get("latest")
+        if state.get("channel", "stable") != self.channel() or not isinstance(data, dict):
+            return None
+        tag = data.get("tag")
+        if not (valid_tag(tag) or (self.channel() == "beta" and valid_beta_tag(tag))):
+            return None
+        return {"tag": tag, "url": release_url(tag), "notes": plain_text(data.get("notes")), "beta": valid_beta_tag(tag)}
 
     def available(self):
         latest = self.latest()
@@ -264,6 +320,8 @@ class UpdateService:
         if not self._settings().update_check or self._blocked_until(now):
             return False
         state = self._state()
+        if state.get("channel", "stable") != self.channel():
+            return True  # the channel was just changed: ask about the new one now
         if state.get("retry_pending"):
             return True  # a rate-limit pause just ended and nothing was fetched: ask again now, not in a day
         attempt = state.get("attempt")
@@ -285,17 +343,19 @@ class UpdateService:
             attempt = state.get("attempt")
             if manual and isinstance(attempt, (int, float)) and 0 <= now - attempt < MIN_GAP_S:
                 return {"ok": True, "outcome": "recent", "message": "Just checked."}
-            res = await fetch_latest(state.get("etag"), now=now, transport=self._transport)
+            channel = self.channel()
+            same = state.get("channel", "stable") == channel  # an ETag belongs to one address
+            res = await fetch_latest(state.get("etag") if same else None, now=now, transport=self._transport, channel=channel)
             good = res["outcome"] in ("ok", "not_modified", "no_release")
             changes = {"attempt": now, "reached": res["reached"], "error": None if good else res["message"],
                        "blocked_until": res["retry_at"] if res["outcome"] == "rate_limited" else None,
                        "retry_pending": res["outcome"] == "rate_limited"}
             if res["outcome"] == "ok":
-                changes.update(latest=res["release"], etag=res["etag"], checked=now)
+                changes.update(latest=res["release"], etag=res["etag"], checked=now, channel=channel)
             elif res["outcome"] == "not_modified":
                 changes.update(checked=now)
             elif res["outcome"] == "no_release":
-                changes.update(latest=None, etag=None, checked=now)
+                changes.update(latest=None, etag=None, checked=now, channel=channel)
             self._save_state(**changes)
             return {"ok": good, "outcome": res["outcome"], "message": res["message"]}
 
@@ -354,7 +414,8 @@ class UpdateService:
                                            "backup": backup, "result": "requested", "who": who})
             try:
                 async with self._updater_client() as c:
-                    r = await c.post("/v1/apply")
+                    # Stable sends nothing (so an older updater works unchanged); beta sends the one word the updater accepts.
+                    r = await c.post("/v1/apply", json={"channel": "beta"}) if self.channel() == "beta" else await c.post("/v1/apply")
             except Exception as exc:
                 raise UpdateError(f"The updater could not be reached ({exc.__class__.__name__}). Is it running?") from exc
             if r.status_code == 401:
@@ -410,8 +471,8 @@ class UpdateService:
                 last["result"] = "done"  # we are the new version
                 self.store.set_json(KEY_LAST, last)
         return {
-            "version": __version__, "install": {"kind": install["kind"], "steps": install["steps"]},
-            "check_enabled": s.update_check, "auto_update": s.auto_update,
+            "version": __version__, "install": {"kind": install["kind"], "steps": manual_steps(install, s.update_channel, latest)},
+            "check_enabled": s.update_check, "auto_update": s.auto_update, "channel": s.update_channel,
             "can_apply": bool(install["can_apply"] and available), "reason": install["reason"],
             "checked": state.get("checked") if isinstance(state.get("checked"), (int, float)) else None,
             "last_error": plain_text(state.get("error"), 300) or None,

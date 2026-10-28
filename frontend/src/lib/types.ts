@@ -14,6 +14,7 @@ export interface Settings {
   send_delay_s: number;
   ai_fallback: boolean;
   auto_backup: boolean;
+  update_channel: "stable" | "beta";
   backup_keep: number;
   update_check: boolean;
   auto_update: boolean;
@@ -153,7 +154,8 @@ export interface AppUpdateStatus {
   install: { kind: "docker" | "docker-manual" | "git" | "other"; steps: string[] };
   check_enabled: boolean; auto_update: boolean; can_apply: boolean; reason: string | null;
   checked: number | null; last_error: string | null;
-  latest: { tag: string; url: string; notes: string } | null; update_available: boolean;
+  channel: "stable" | "beta";
+  latest: { tag: string; url: string; notes: string; beta: boolean } | null; update_available: boolean;
   last_update: { from: string; to: string; ts: number; backup: string; result: string } | null;
   updater: UpdaterState | null; idle_reason: string | null;
   result?: { ok: boolean; outcome: string; message: string };

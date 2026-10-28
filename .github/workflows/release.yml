@@ -3,7 +3,8 @@ name: release
 # Publishes a GitHub Release, and signed multi-architecture container images, when a version tag such as v0.2.0 is pushed.
 # How to cut one, and what protects it: docs/RELEASING.md.
 #
-#   verify   the tag is `v` + __version__, CHANGELOG.md has a section for it, and the tagged commit is on main
+#   verify   the tag is `v` + __version__, CHANGELOG.md has a section for it, and the tagged commit is on main (a pre-release such
+#            as v0.2.0-beta.1, which installs only receive on the beta channel, may instead be on the beta branch)
 #   test     backend tests and the frontend build
 #   images   build + push the app and updater images (linux/amd64 and linux/arm64), sign each with cosign (keyless, GitHub's
 #            identity) and attest its provenance. The only job that can write packages or request a signing identity.
@@ -31,15 +32,28 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: python3 scripts/release_check.py check "$TAG"
-      - name: The tagged commit is on main
+      - name: The tagged commit is on main (or, for a pre-release, on beta)
         env:
+          TAG: ${{ github.ref_name }}
           TAGGED_COMMIT: ${{ github.sha }}
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
-          if ! git merge-base --is-ancestor "$TAGGED_COMMIT" refs/remotes/origin/main; then
-            echo "error: $TAGGED_COMMIT is not on main; merge it first and tag the merge commit" >&2
-            exit 1
+          if git merge-base --is-ancestor "$TAGGED_COMMIT" refs/remotes/origin/main; then
+            exit 0
           fi
+          case "$TAG" in
+            *-beta.*)
+              git fetch --no-tags origin beta:refs/remotes/origin/beta || true
+              if git rev-parse --verify --quiet refs/remotes/origin/beta >/dev/null \
+                  && git merge-base --is-ancestor "$TAGGED_COMMIT" refs/remotes/origin/beta; then
+                exit 0
+              fi
+              echo "error: $TAGGED_COMMIT is on neither main nor beta" >&2
+              exit 1
+              ;;
+          esac
+          echo "error: $TAGGED_COMMIT is not on main; merge it first and tag the merge commit" >&2
+          exit 1
       # Made here, with the checked-out code, so the job that may write to the repository runs none of it.
       - name: The release notes and the files to attach
         env:

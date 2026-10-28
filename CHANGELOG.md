@@ -5,6 +5,12 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Added
+- **A beta update channel** (Settings → Updates → Release channel). Beta nodes also receive test versions (`vX.Y.Z-beta.N`) built
+  from the new `beta` branch, signed and verified exactly like releases; stable nodes never see them. Only that exact tag form is
+  accepted, a beta sorts below the release it leads to, and leaving the channel never downgrades. The release workflow now lets a
+  `-beta.N` tag be cut from `beta`; stable tags still must be on `main`. See docs/UPDATING.md and docs/RELEASING.md.
+
 ## [0.1.5] - 2026-10-28
 
 ### Added

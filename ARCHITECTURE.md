@@ -178,7 +178,8 @@ immediate actions elsewhere (like blocking a node) are never overwritten by a st
                           -> wait healthy + reports <v>  --fail-->  restore lorapedia-rollback:previous
 ```
 
-The app only ever *checks*; applying is the updater's job, so the process that handles mesh text never holds the Docker socket.
+On the beta channel (off by default) the app reads the last few releases and the updater also accepts `vX.Y.Z-beta.N` pre-releases,
+with the same signature check; the app's request carries only the word `beta`. The app only ever *checks*; applying is the updater's job, so the process that handles mesh text never holds the Docker socket.
 The request to the updater carries no version or image: the updater reads GitHub itself, accepts only a strictly newer stable
 `vX.Y.Z`, and runs only if cosign confirms the image was signed by this repository's release workflow for that exact tag. The new
 image is referenced by digest, so what was verified is what runs. A verified backup of the settings database precedes the request.
