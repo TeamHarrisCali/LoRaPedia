@@ -623,7 +623,8 @@ async def test_a_beta_returns_to_the_newest_stable_after_a_backup_and_with_the_o
     assert last["downgrade"] is True and last["to"] == "0.1.10" and last["from"] == BETA_VERSION and last["result"] == "requested"
 
 
-async def test_only_a_beta_may_use_return_to_stable(tmp_path):
+async def test_only_a_beta_may_use_return_to_stable(tmp_path, monkeypatch):
+    monkeypatch.setattr(U, "__version__", "0.1.11")  # pinned: these tests must not depend on which version is being built
     svc, _ = service(tmp_path, gh(release("v0.1.10")), updater=updater_ok([]))  # the running version here is a stable release
     with pytest.raises(U.UpdateError, match="not a beta"):
         await svc.leave_beta()
@@ -680,7 +681,7 @@ async def test_the_status_says_when_a_beta_can_return_and_what_to_type_when_it_c
     manual, _ = service(tmp_path / "m", gh(release("v0.1.10")), can_apply=False)
     st = await manual.status()
     assert st["on_beta"] and not st["can_leave_beta"]
-    monkeypatch.undo()
+    monkeypatch.setattr(U, "__version__", "0.1.11")
     stable, _ = service(tmp_path / "m", gh(release("v0.1.10")))
     assert (await stable.status())["on_beta"] is False and (await stable.status())["leave_beta_steps"] == []
 
@@ -719,7 +720,8 @@ def test_api_the_channel_goes_back_to_stable_even_when_the_return_itself_fails(t
         assert c.get("/api/settings").json()["update_channel"] == "stable"
 
 
-def test_api_a_stable_node_cannot_use_it(tmp_path):
+def test_api_a_stable_node_cannot_use_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(U, "__version__", "0.1.11")
     with api_client(tmp_path, gh(release("v0.1.10")), updater_ok([]), docker_env(tmp_path)) as c:
         r = c.post("/api/updates/leave-beta")
         assert r.status_code == 400 and "not a beta" in r.json()["detail"]
