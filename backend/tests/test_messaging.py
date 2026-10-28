@@ -53,6 +53,28 @@ def routing(request_id, sender, reason="NONE"):
     return {"from": sender, "to": MY_NUM, "decoded": {"portnum": "ROUTING_APP", "requestId": request_id, "routing": {"errorReason": reason}}}
 
 
+_OPEN: list[RadioManager] = []
+
+
+def listeners(topic):
+    """Who is still subscribed to a meshtastic pypubsub topic (the topics are global, shared by every test in the process)."""
+    from pubsub import pub
+    try:
+        return list(pub.getDefaultTopicMgr().getTopic(topic).getListeners())
+    except Exception:
+        return []
+
+
+@pytest.fixture(autouse=True)
+async def close_radios():
+    """Every radio a test connects is closed again. A radio left subscribed is garbage collected some time later, and the next test that
+    publishes on the shared topic then fails with pypubsub's "Dead Listener called" (it showed up as a flaky test_radio.py on one Python)."""
+    yield
+    while _OPEN:
+        await _OPEN.pop().stop()
+    assert listeners("meshtastic.receive.text") == [] and listeners("meshtastic.receive") == []
+
+
 class Clock:
     def __init__(self, now=1_800_000_000.0):
         self.now = now
@@ -73,6 +95,7 @@ async def rig(settings=None, real=True):
     mgr = RadioManager(settings=lambda: s, submit=lambda p: asyncio.sleep(0), on_delivery=on_delivery, factory=lambda spec: iface,
                        port_lister=lambda: ["/dev/ttyACM0"], poll_s=60)
     await mgr.reconcile()
+    _OPEN.append(mgr)
 
     async def emit(event):
         events.append(event)
