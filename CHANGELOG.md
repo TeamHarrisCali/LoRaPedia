@@ -5,6 +5,10 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.2.0-beta.8] - 2026-10-28
+
+A test version for the beta channel: the MeshtasticLLM merge, phase 5.
+
 ### Added (beta: the MeshtasticLLM merge, phase 5: Messages and delivery tracking)
 - **Delivery tracking.** Every message sent over a real radio asks for an acknowledgement and the Live Feed shows what came back for each
   answer: Delivered (the other node confirmed it), Passed on (a neighbour repeated it), Sent, waiting, Not confirmed (nothing heard in 3
