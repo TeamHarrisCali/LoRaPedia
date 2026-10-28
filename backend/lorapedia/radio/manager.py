@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable
 
 from ..config import Settings
 from .base import Packet
+from .help import radio_help
 from .meshtastic_radio import ConnectionSpec, MeshtasticRadio, RadioError, _default_factory, list_serial_ports
 from .simulator import SimulatorRadio
 
@@ -160,6 +161,7 @@ class RadioManager:
             "active": self.active, "connected": real is not None, "method": s.radio_method,
             "address": real.spec.address if real else s.radio_address, "node_id": self.node_id,
             "error": self.error, "device": real.device_info() if real else {},
+            "help": None if real else radio_help(method=s.radio_method, error=self.error),
             "last_rx": (real.last_rx.get("ts") if real else None),
             "rssi": real.last_rx.get("rssi") if real else None, "snr": real.last_rx.get("snr") if real else None,
         }

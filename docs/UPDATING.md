@@ -23,12 +23,19 @@ try new features early. It is meant for a node you can afford to break.
   `0.2.0` when it appears, and a stable node never sees any beta.
 - A backup of your settings and question log is made before every update, and a version that does not start is rolled back. Your
   Wikipedia files and search index are **not** backed up, and a beta may add new data files; read its release notes.
-- **Leaving the beta channel never downgrades.** Choose Stable again and you stay on the beta you have until a stable release newer
-  than it arrives. To go back sooner, use the roll-back below.
+- **Choosing Stable again does not downgrade by itself.** Updates never go backwards, so you stay on the beta you have until a stable
+  release newer than it arrives. To go back now, use **Return to stable** (next point).
+- **Return to stable.** While you run a beta, Settings → Updates shows a **Return to stable** button (Docker installs with the updater).
+  It sets the channel to Stable, makes a backup of your settings and question log, and installs the newest stable release, verified like
+  any release. This is the only downgrade there is: the updater accepts it only from a node running a beta, only to the newest stable
+  release, and refuses it from any other version. Your Wikipedia library is kept; what the beta added (for example the Nodes data in
+  `mesh.db`) is left in place but unused. For installs that cannot do it themselves the card shows the commands (`git switch main`
+  and `git pull` for a source checkout; set `LORAPEDIA_IMAGE=ghcr.io/teamharriscali/lorapedia:latest` in `.env` for Docker without the
+  updater). An updater container older than this feature says so and shows how to update it.
 - Save the setting, then press **Check now**. For installs that cannot update themselves the page shows the matching commands
   (`git switch beta` for a source checkout; the image to put in `.env` for Docker without the updater).
-- The request the app sends the updater carries one word, `beta`, and nothing else (no version, no image). The updater refuses any other
-  field. A compromised app could therefore at worst move the node to a signed beta of this repository, never to anything else.
+- The request the app sends the updater carries one word, `beta` (or, to leave the beta, `stable` with `leave_beta: true`), and nothing else (no version, no image). The updater refuses any other
+  field. A compromised app could therefore at worst move the node to a signed beta of this repository, or a node running a beta to the newest signed stable release, never to anything else.
 - An older updater container simply ignores the channel and keeps offering stable releases, which is safe, but pressing Update now then
   appears to do nothing ("Already on the newest release"). The Updates card says so when it sees this. To get betas, pull the new one:
   `docker compose pull updater && docker compose up -d updater`, then press Update now again.

@@ -766,6 +766,17 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         result = await updates.check(manual=True)
         return {**await updates.status(), "result": result}
 
+    @app.post("/api/updates/leave-beta")
+    async def updates_leave_beta():
+        """"Return to stable": stop offering betas, back up, and move a node running a beta to the newest stable release."""
+        put = settings().model_copy(update={"update_channel": "stable"})  # first, so no beta is offered again whatever happens next
+        state["settings"] = put
+        store.save_settings(put)
+        try:
+            return await updates.leave_beta(who="user")
+        except UpdateError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.post("/api/updates/apply")
     async def updates_apply():
         """Takes no parameters: the updater decides what to install from GitHub itself and verifies its signature."""

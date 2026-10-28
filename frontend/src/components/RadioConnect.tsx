@@ -4,6 +4,7 @@ import { useSettings } from "../lib/settings";
 import { useToast } from "../lib/toast";
 import type { RadioStatus, Settings } from "../lib/types";
 import { usePoll } from "../lib/usePoll";
+import { RadioHelpBox } from "./RadioHelpBox";
 import { SignalGlyph } from "./SignalGlyph";
 import { Button, Dot, Field, Help } from "./ui";
 
@@ -70,6 +71,8 @@ export function RadioConnect({ status, onChanged }: { status: RadioStatus | null
           {!(status?.method === "simulator") && <Button variant="ghost" onClick={() => void useSimulator()}>Use simulator</Button>}
         </span>
       </div>
+
+      {!connected && status?.help && <RadioHelpBox help={status.help} />}
 
       <fieldset className="mb-4">
         <legend className="mb-2 text-sm font-medium">Connection method</legend>

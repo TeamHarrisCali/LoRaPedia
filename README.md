@@ -253,7 +253,7 @@ only your IP address and the version `lorapedia/0.1.0` are visible to GitHub). I
 | `./run.sh` / source checkout | You are told, with the commands (`git pull`, `./run.sh`). |
 
 **Beta channel.** *Settings → Updates → Release channel → Beta* also offers test versions (`vX.Y.Z-beta.N`) built from the `beta`
-branch, checked and signed like any release. Leaving it never downgrades. See [docs/UPDATING.md](docs/UPDATING.md#the-beta-channel).
+branch, checked and signed like any release. **Return to stable** in the same card brings a beta back to the newest stable release (the one downgrade there is). See [docs/UPDATING.md](docs/UPDATING.md#the-beta-channel).
 
 **How the automatic update is made safe.** The app never touches Docker. A separate, minimal *updater* container holds the
 Docker socket, and it can do exactly one thing: install the newest published release of *this* repository.
@@ -311,6 +311,7 @@ model has no tools and cannot run anything, so the worst outcome of a hostile qu
 | Symptom | What to do |
 |---|---|
 | **"No radio found. Is it plugged in?"** | Check the USB cable carries data (try another). Press Retry. Run `ls /dev/ttyACM* /dev/ttyUSB*`: if nothing appears, the computer does not see the radio. Meanwhile the simulator keeps everything usable. |
+| **The radio will not connect (Linux)** | The Radio page now looks at the real device files and tells you which of the usual causes it is, with the exact commands to copy: a cable that only charges, your user (or the container) not being in the device's group, a device file that its group may not write to (it offers a udev rule), another program holding the port (ModemManager, the Meshtastic app), or a radio that does not answer. |
 | **"Permission denied" on the serial port** | Add your user to the serial group (`sudo usermod -aG dialout $USER`, or `uucp` on Arch) and log out and in. In Docker the container learns the device's group when it starts: run `docker compose restart lorapedia`. |
 | **"The serial port is busy"** | Another program has it: the Meshtastic app or CLI, or ModemManager on Linux. Close them, or stop ModemManager (`sudo systemctl stop ModemManager`). |
 | **"Several radios found"** | Choose *USB, choose the port* and pick one. |

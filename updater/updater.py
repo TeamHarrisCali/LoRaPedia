@@ -9,7 +9,10 @@ READ THIS FIRST, it is the whole security story:
 * The version comes from GitHub, parsed strictly: on the stable channel `releases/latest`, which must be a stable `vX.Y.Z` tag that is
   not a draft or pre-release. On the beta channel the newest of the last few releases, which may also be a pre-release tagged exactly
   `vX.Y.Z-beta.N` and flagged as one (any other pre-release name is refused). It must be strictly newer than what is running
-  (a beta sorts below the release it leads to): it can never downgrade.
+  (a beta sorts below the release it leads to): it can never downgrade, with ONE exception. A node that is running a BETA may ask
+  to "leave the beta" (`{"channel": "stable", "leave_beta": true}`): it is then moved to the newest published STABLE release even
+  though that number is lower, because that is the way back from a test version. Nothing else can ever go backwards: a stable node
+  is never moved to an older release, and a beta is never moved to anything but the newest stable one, verified the same way.
 * Before anything runs, the image is pulled and its signature is verified with cosign against the EXACT identity
   `https://github.com/<REPO>/.github/workflows/release.yml@refs/tags/<tag>` issued by GitHub's OIDC provider: only the release
   workflow, run for that exact tag, produces an image that passes. What was verified is what runs: the new image is referenced by
@@ -79,6 +82,11 @@ def is_newer(tag: str, current: str) -> bool:
         return False
     a, b = parse(tag[1:]), parse(current)
     return a is not None and b is not None and a > b
+
+
+def is_beta_version(version: str) -> bool:
+    """A running version of the form X.Y.Z-beta.N (the only kind of node that may return to stable)."""
+    return isinstance(version, str) and re.fullmatch(NUM + r"\." + NUM + r"\." + NUM + r"-beta\." + NUM, version, re.ASCII) is not None
 
 
 def signing_identity(tag: str) -> str:
@@ -269,19 +277,19 @@ class Updater:
         return best
 
     # ---- the update -----------------------------------------------------------------------------------------------
-    def start_apply(self, channel: str = "stable") -> dict:
+    def start_apply(self, channel: str = "stable", leave_beta: bool = False) -> dict:
         """Begin an update on a background thread and return at once. Raises UpdateError if one is already running."""
         if channel not in CHANNELS:
             raise UpdateError("Unknown release channel.")
         if not self._apply_lock.acquire(blocking=False):
             raise UpdateError("An update is already running.")
         self._set(state="checking", message="Checking for the newest release", target=None)
-        threading.Thread(target=self._apply_thread, args=(channel,), daemon=True, name="apply").start()
+        threading.Thread(target=self._apply_thread, args=(channel, leave_beta), daemon=True, name="apply").start()
         return self.status()
 
-    def _apply_thread(self, channel: str = "stable"):
+    def _apply_thread(self, channel: str = "stable", leave_beta: bool = False):
         try:
-            self.apply(channel)
+            self.apply(channel, leave_beta)
         except UpdateError as exc:
             self._set(state="failed", message=str(exc))
         except Exception as exc:  # a bug must not leave the app waiting for ever
@@ -289,16 +297,21 @@ class Updater:
         finally:
             self._apply_lock.release()
 
-    def apply(self, channel: str = "stable"):
+    def apply(self, channel: str = "stable", leave_beta: bool = False):
         project = self.project()
         container = self.app_container(project)
         current = self.running_version(container)
         self._set(current=current)
         if parse(current) is None:
             raise UpdateError(f"The running image is version {current!r}, not a release, so it is not updated automatically.")
+        if leave_beta and (channel != "stable" or not is_beta_version(current)):
+            raise UpdateError("Returning to stable is only for a node that is running a beta.")
         tag = self.latest_tag(channel)
         self._set(target=tag[1:])
-        if not is_newer(tag, current):
+        if leave_beta and not valid_tag(tag):
+            raise UpdateError("The newest stable release could not be determined, so nothing was changed.")
+        # The one downgrade there is: a beta to the newest stable release (leave_beta). Everything else must be strictly newer.
+        if not leave_beta and not is_newer(tag, current):
             self._set(state="idle", message=f"Already on the newest release ({current})" + (" on the beta channel." if channel == "beta" else "."))
             return
         if tag[1:] in self.status()["failed_versions"]:
@@ -306,7 +319,7 @@ class Updater:
         version = tag[1:]
         image = f"{IMAGE_REPO}:{version}"
 
-        self._set(state="pulling", message=f"Downloading {tag}")
+        self._set(state="pulling", message=f"Downloading {tag}" + (" to leave the beta" if leave_beta and not is_newer(tag, current) else ""))
         self._ok("pull", "--quiet", image, what=f"Downloading {tag}")
         ref = self._digest_ref(image)
 
@@ -494,7 +507,7 @@ def make_handler(updater: Updater, token: str):
                 return self._send(401, {"error": "unauthorized"})
             if self.path != "/v1/apply":
                 return self._send(404, {"error": "not found"})
-            channel = "stable"
+            channel, leave_beta = "stable", False
             try:
                 length = int(self.headers.get("Content-Length") or 0)
             except ValueError:
@@ -504,12 +517,15 @@ def make_handler(updater: Updater, token: str):
                     body = json.loads(self.rfile.read(length).decode("utf-8")) if 0 < length <= 256 else None
                 except ValueError:
                     body = None
-                # The only thing a caller may say is which channel. Anything else is refused, not ignored.
-                if not isinstance(body, dict) or set(body) != {"channel"} or body["channel"] not in CHANNELS:
+                # The only things a caller may say: which channel, and (from the stable channel) that a beta wants to leave the beta.
+                # Anything else is refused, not ignored.
+                ok = isinstance(body, dict) and body.get("channel") in CHANNELS and (
+                    set(body) == {"channel"} or (set(body) == {"channel", "leave_beta"} and body["leave_beta"] is True and body["channel"] == "stable"))
+                if not ok:
                     return self._send(400, {"error": "bad request"})
-                channel = body["channel"]
+                channel, leave_beta = body["channel"], body.get("leave_beta") is True
             try:
-                self._send(202, updater.start_apply(channel))
+                self._send(202, updater.start_apply(channel, leave_beta))
             except UpdateError as exc:
                 self._send(409, {"error": str(exc)})
 
