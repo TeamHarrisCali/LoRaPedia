@@ -16,6 +16,8 @@ export interface Settings {
   distance_unit: "km" | "mi";
   mesh_record: boolean;
   mesh_questions: boolean;
+  operator_chat_minutes: number;
+  operator_public_post: boolean;
   memory_hours: number;
   mesh_retention_days: number;
   update_channel: "stable" | "beta";
@@ -144,6 +146,8 @@ export interface QueryRow {
   latency_s: number;
   sources: string[];
   debug: { prompt: string; compressed: boolean; chunks: QueryChunk[]; demo?: boolean; fallback?: boolean; mesh?: boolean };
+  /** What became of the messages that went out for this answer (absent for the simulator, which sends nothing over the air). */
+  delivery?: { state: DeliveryState | null; parts: DeliveryPart[] };
   /** True when it arrived over the WebSocket just now (drives the typewriter reveal). */
   live?: boolean;
 }
@@ -187,10 +191,23 @@ export interface TryResult {
 }
 export interface WizardState { done: string[]; skipped: string[]; finished: boolean; step: number }
 
+export type DeliveryState = "sent" | "relayed" | "delivered" | "unconfirmed" | "failed";
+export interface DeliveryPart { packet_id: number; part: number; state: DeliveryState; detail: string | null; to: string; updated: number }
+
+export interface MessageThread { node_id: string; name: string; id: number; ts: number; direction: "out" | "in"; text: string; until: number | null; chatting: boolean }
+export interface ChatMessage {
+  id: number; ts: number; direction: "out" | "in"; node_id: string | null; channel: number | null; text: string;
+  packet_id: number | null; simulated: boolean; delivery: DeliveryPart | null;
+}
+export interface ChatThread { node_id: string; name: string; messages: ChatMessage[]; chatting: boolean; chat_until: number | null; radio: string }
+export interface PublicPosts { enabled: boolean; connected: boolean; channels: { index: number; name: string }[]; posts: ChatMessage[]; gap_s: number }
+
 export type LiveEvent =
   | ({ type: "query" } & QueryRow & { parts: string[] })
   | { type: "rx"; from: string; name: string; dm: boolean; rssi: number | null; snr: number | null }
   | { type: "radio"; status: RadioStatus }
+  | { type: "delivery"; packet_id: number; state: DeliveryState; detail: string | null }
+  | { type: "message"; node_id: string | null; direction: "out" | "in" }
   | { type: "error"; detail: string };
 
 export interface WikiPackage {

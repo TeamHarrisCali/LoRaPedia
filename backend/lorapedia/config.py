@@ -47,6 +47,12 @@ class Settings(BaseModel):
     # Follow-up questions: each person's last few exchanges are kept in memory (never on disk) this long after their last question. 0 = off.
     memory_hours: int = Field(24, ge=0, le=168)
 
+    # Operator messaging (the Messages page): messages you type yourself. After you write to a node, what it sends back (unless it starts with
+    # a trigger prefix) is shown to you instead of being answered by the AI, for this many minutes (0 = off). A post to a PUBLIC channel is
+    # off until you turn it on; the AI can never post publicly, whatever these say.
+    operator_chat_minutes: int = Field(30, ge=0, le=1440)
+    operator_public_post: bool = False
+
     # What the radio hears of the rest of the mesh (nodes, positions, telemetry, signal), kept in mesh.db. Never message content.
     mesh_record: bool = True
     mesh_retention_days: int = Field(30, ge=1, le=365)

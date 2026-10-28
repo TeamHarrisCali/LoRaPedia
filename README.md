@@ -171,8 +171,9 @@ Dedicate a radio to LoRaPedia. Give it a memorable name (e.g. `WIKI`) so people 
 Anyone on the mesh can **send a direct message** to the LoRaPedia node with their question, and only the asker sees the reply.
 **LoRaPedia answers direct messages only. It never replies in a public channel, and anything said in a channel is ignored.** That is
 not a setting: the rule is enforced at four separate points (the message parser, the engine, the radio manager, and the radio
-adapter, which has no way to broadcast at all), each with its own test, so a wrong setting, an old settings file or a bug in one place
-cannot make the node post publicly. A prefix such as `?what is a quasar` or `!wiki quasar` is optional in a direct message.
+adapter's `send_text`, which has no way to broadcast at all), each with its own test, so a wrong setting, an old settings file or a bug in
+one place cannot make the node post publicly. The only way anything is ever posted to a public channel is a post **you type yourself** on
+the *Messages* page (off by default, see below): nothing the AI does, and nothing received over the air, can reach it. A prefix such as `?what is a quasar` or `!wiki quasar` is optional in a direct message.
 
 | Message | What happens |
 |---|---|
@@ -200,11 +201,30 @@ conversation is ever shown to the model while answering someone else), forgotten
 sets the time, 0 turns it off), when they send `?reset`, or when LoRaPedia restarts. Only answers found in Wikipedia are remembered:
 not mesh answers, not guesses. For questions that depend on the date ("how old is…", "today", "since…") the model is also told today's date.
 
+**Did the answer arrive?** *(beta)* Every message LoRaPedia sends over a real radio asks the mesh for an acknowledgement, and the Live
+Feed shows what came back for each answer: **Delivered** (the other node confirmed it), **Passed on** (a neighbour was heard repeating
+it, but the node itself has not confirmed), **Sent, waiting**, **Not confirmed** (nothing heard in 3 minutes: it may still have arrived,
+because the confirmation can be lost) or **Failed** with the reason the mesh gave (for example "no route to the node"). An answer in
+several parts is delivered only when every part was. The simulator sends nothing over the air, so it shows no delivery report.
+
+**Messages you type** *(beta)*. The *Messages* page sends a direct message to one node (never to everyone), after you pick the node,
+one at a time, with a report of whether it arrived. A message written there is yours: the AI never sends it, never sees it, and the
+page says so. **Chats:** so your friend's "ok, see you there" is not answered with a Wikipedia article, for 30 minutes after you write to
+a node (*Settings → Messages*, 0 turns it off) what that node sends back is kept for you on the page and the AI stays out of it. Each
+reply keeps the chat going and *End chat* closes it. A message that starts with `?` or `!wiki`, or a command, still reaches the AI, so a
+person can always ask it something. What you type, and what comes back during a chat, is kept in `lorapedia.db` (so it is in *Backups*),
+and deleted after the mesh-data retention period (30 days by default).
+**Public posts** are a separate, deliberate step: *Settings → Messages → Allow me to post to a public channel* is **off** until you
+turn it on. Then you can type a message, choose one of the radio's channels, confirm, and it goes out (at most once a minute, only with a
+real radio connected, never from the simulator). Everyone on that channel hears it and every node in range repeats it, and a broadcast
+is not acknowledged, so there is no delivery report. The web interface has no password: while this is on, anyone who can open the page
+could post, so leave it off unless only you can reach it.
+
 **When Wikipedia has nothing.** If a question matches no article, LoRaPedia does not just say "not found". Once every
 article is searchable (after pass 1), it asks the language model to answer **from its own memory**, and the reply
 always starts with **`[AI memory - may be wrong]`**. That warning is added by the program, not left to the model. A guess
-is never sent as more than **one message**, however long the model rambles, because it is the least reliable thing
-the node sends.
+continues over several messages like any other answer (up to your *max parts*), and a guess that comes out too long is rewritten once
+to fit rather than cut off in mid-sentence.
 A small model gets facts wrong, so treat these as hints: the model is told to say "I don't know" rather than guess,
 and to keep medical, legal and safety questions general. While indexing is still on pass 1, an unmatched question
 gets "Not found yet: my library is still being indexed" instead, because the article may simply not be indexed yet.
@@ -246,6 +266,7 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 | **Link quality** *(beta)* | How well your radio hears the nodes that reach it directly: signal against distance with the decode limit marked, and a table. Also available as an overlay on the Map |
 | **Telemetry** *(beta)* | What nodes broadcast: sensor averages around you (each node counted once), battery, voltage, channel use, temperature, humidity and pressure over time for the nodes you pick, a table of recent readings, and a CSV export |
 | **Trends** *(beta)* | When the mesh is busiest (by hour of the day), a heat map of the last week, and how far packets travel (directly, or through how many relays). Counts only |
+| **Messages** *(beta)* | Write to a node yourself: a direct message to one node, with a report of whether it arrived. After you write to a node, what it sends back (unless it starts with `?` or `!wiki`) comes to this page for a while instead of being answered by the AI. Also, **off by default**, a post to a public channel that you type and confirm yourself |
 | **Nodes** *(beta)* | Every node the radio has heard: names, hardware, hops, signal, battery, sensors, last position, and a history of each. Search and filter, and add your own label and note to any node |
 | **Settings** | Rate limits, queue length, AI-memory fallback, *Mesh AI* (mesh questions on or off, how long follow-ups are remembered), theme, temperature and distance units, backups, mesh data, CSV export of the log, demo data |
 

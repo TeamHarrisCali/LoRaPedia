@@ -367,21 +367,47 @@ async def test_a_library_answer_is_never_marked_as_a_guess():
     assert eng.store.recent_queries(1)[0]["debug"]["fallback"] is False
 
 
-async def test_a_rambling_guess_is_cut_to_one_message_and_keeps_its_warning():
+async def test_a_long_guess_continues_over_several_messages_and_keeps_its_warning_up_front():
     from lorapedia.engine import FALLBACK_PREFIX
-    long_guess = "caf\u00e9 \u65e5\u672c\u8a9e facts about the thing. " * 40  # ~1.5 KB, multibyte
-    eng = make_with_state("complete", Scripted(long_guess), Settings(send_delay_s=0, max_parts=3))
+    sentence = "The thing is a long-studied subject with many known facts. "
+    guess = sentence * 6  # ~350 bytes: more than one message, well inside three
+    eng = make_with_state("complete", Scripted(guess), Settings(send_delay_s=0, max_parts=3))
     texts = await ask(eng)
-    assert len(texts) == 1 and byte_len(texts[0]) <= 200  # never several messages of unverified text
-    assert texts[0].startswith(FALLBACK_PREFIX) and texts[0].endswith("...")
+    assert len(texts) == 2 and all(byte_len(t) <= 200 for t in texts)
+    assert texts[0].startswith("(1/2) " + FALLBACK_PREFIX) and texts[1].startswith("(2/2) ")
+    assert not any(t.endswith("...") for t in texts)  # nothing was cut: it simply went on in the next message
+    assert " ".join(t.split(") ", 1)[1] for t in texts).replace(FALLBACK_PREFIX, "").strip() == guess.strip()
+
+
+async def test_a_guess_too_long_even_for_all_the_parts_is_cut_only_at_the_very_end():
+    from lorapedia.engine import FALLBACK_PREFIX
+    long_guess = "caf\u00e9 \u65e5\u672c\u8a9e facts about the thing. " * 80  # ~3 KB, multibyte
+    eng = make_with_state("complete", Scripted(long_guess, long_guess), Settings(send_delay_s=0, max_parts=3))
+    texts = await ask(eng)
+    assert len(texts) == 3 and all(byte_len(t) <= 200 for t in texts) and FALLBACK_PREFIX in texts[0]
+    assert [t.endswith("...") for t in texts] == [False, False, True]
+
+
+async def test_a_guess_that_overshoots_is_rewritten_once_instead_of_cut_mid_sentence():
+    long_guess = "A fairly wordy explanation of the thing, which goes on and on. " * 20  # ~1.2 KB
+    llm = Scripted(long_guess, "A short and complete explanation of the thing.")
+    eng = make_with_state("complete", llm, Settings(send_delay_s=0, max_parts=3))
+    texts = await ask(eng)
+    assert texts == ["[AI memory - may be wrong] A short and complete explanation of the thing."]
+    assert len(llm.calls) == 2 and llm.calls[1][1].startswith("REWRITE")
 
 
 async def test_the_guess_is_asked_to_fit_the_room_left_after_the_warning():
-    llm = Scripted("short")
-    eng = make_with_state("complete", llm, Settings(send_delay_s=0, max_parts=3))  # multi-part on: still one message of room
-    await ask(eng)
     from lorapedia.engine import FALLBACK_PREFIX
-    assert f"at most {200 - byte_len(FALLBACK_PREFIX)} bytes" in llm.calls[0][1]  # one message, not the multi-part budget
+    from lorapedia import fitter
+    llm = Scripted("short")
+    eng = make_with_state("complete", llm, Settings(send_delay_s=0, max_parts=3))
+    await ask(eng)
+    assert f"at most {fitter.total_budget(200, 3) - byte_len(FALLBACK_PREFIX)} bytes" in llm.calls[0][1]  # all the parts' room, the warning counted once
+    llm = Scripted("short")
+    eng = make_with_state("complete", llm, Settings(send_delay_s=0, multipart_enabled=False))  # one message only: one message of room
+    await ask(eng)
+    assert f"at most {200 - byte_len(FALLBACK_PREFIX)} bytes" in llm.calls[0][1]
 
 
 async def test_a_failing_model_during_the_fallback_degrades_to_not_found():

@@ -21,5 +21,6 @@ class Packet:
 class Radio(Protocol):
     node_id: str
 
-    async def send_text(self, text: str, to: str | None, channel: int, hop_limit: int) -> None:
-        """Send to a node id (DM) or, when `to` is None, broadcast on `channel`."""
+    async def send_text(self, text: str, to: str | None, channel: int, hop_limit: int) -> int | None:
+        """Send a direct message to a node id (`to` is never None: see manager.py). Returns the packet id if the radio gives one, so its
+        delivery can be followed."""

@@ -27,6 +27,15 @@ log = logging.getLogger(__name__)
 BROADCAST_NUM = 0xFFFFFFFF  # meshtastic.BROADCAST_NUM
 MAX_PAYLOAD = 233  # Meshtastic's hard text limit; the configured limit is always <= this
 CONNECT_TIMEOUT_S = 20  # the library's default is 300s, far too long for a UI "Retry"
+TRACK_KEEP_S = 600      # a sent message is followed for this long for its acknowledgement
+TRACK_MAX = 512
+# What the firmware's negative acknowledgements mean, in words for the person running the node.
+ROUTING_ERRORS = {
+    "MAX_RETRANSMIT": "no acknowledgement after the retries", "NO_ROUTE": "no route to the node", "TIMEOUT": "timed out",
+    "NO_CHANNEL": "the node does not share the channel", "PKI_FAILED": "encryption key problem", "PKI_UNKNOWN_PUBKEY": "its public key is unknown",
+    "NO_RESPONSE": "no response", "TOO_LARGE": "message too large", "DUTY_CYCLE_LIMIT": "radio duty cycle limit reached",
+    "RATE_LIMIT_EXCEEDED": "rate limit reached", "NOT_AUTHORIZED": "not authorized",
+}
 
 
 class RadioError(RuntimeError):
@@ -149,9 +158,12 @@ class MeshtasticRadio:
         on_packet: Callable[[Packet, dict], Awaitable[None]],
         on_lost: Callable[[], None] | None = None,
         on_mesh: Callable[[dict, int | None], None] | None = None,
+        on_delivery: Callable[[int, str, str | None], None] | None = None,
         factory: Callable[[ConnectionSpec], Any] = _default_factory,
     ) -> None:
         self.spec = spec
+        self._on_delivery = on_delivery  # (packet id, "delivered" | "relayed" | "failed", why), on the event loop
+        self._tracked: dict[int, tuple[int | None, float]] = {}  # id of a message we sent -> (its addressee's number, when)
         self.node_id = ""
         self.last_rx: dict = {}
         self._on_packet, self._on_lost, self._on_mesh, self._factory = on_packet, on_lost, on_mesh, factory
@@ -222,12 +234,49 @@ class MeshtasticRadio:
 
     def _on_any(self, packet: dict, interface: Any) -> None:
         """Every received packet, on the meshtastic thread. Only hands it to the event loop: parsing happens there."""
-        if self._on_mesh is None or interface is not self._iface or self._loop is None:
+        if interface is not self._iface or self._loop is None:
+            return
+        self._track_ack(packet)
+        if self._on_mesh is None:
             return
         try:
             self._loop.call_soon_threadsafe(self._on_mesh, packet, self._my_num())
         except RuntimeError:  # the loop has closed (shutting down)
             pass
+
+    def _track(self, packet_id: int, to: str) -> None:
+        """Remember a message we sent that asked for an acknowledgement, so the answer can be matched to it."""
+        now = time.time()
+        for old in [i for i, (_, at) in self._tracked.items() if now - at > TRACK_KEEP_S][:64]:
+            self._tracked.pop(old, None)
+        while len(self._tracked) >= TRACK_MAX:
+            self._tracked.pop(next(iter(self._tracked)), None)
+        try:
+            dest = int(to[1:], 16)
+        except ValueError:
+            dest = None
+        self._tracked[packet_id] = (dest, now)
+
+    def _track_ack(self, packet: dict) -> None:
+        """Match a routing packet to a message we sent (meshtastic thread). An acknowledgement from the addressee itself means it
+        arrived; one from anyone else (a neighbour that heard it being passed on) means only that it left. A NAK means it failed."""
+        decoded = packet.get("decoded") or {}
+        rid = decoded.get("requestId")
+        if rid is None or decoded.get("portnum") != "ROUTING_APP" or rid not in self._tracked:
+            return
+        dest = self._tracked[rid][0]
+        reason = (decoded.get("routing") or {}).get("errorReason") or "NONE"
+        if reason == "NONE":
+            state, why = ("delivered" if dest is not None and packet.get("from") == dest else "relayed"), None
+        else:
+            state, why = "failed", ROUTING_ERRORS.get(reason, reason.lower().replace("_", " "))
+        if state != "relayed":
+            self._tracked.pop(rid, None)  # settled; a relayed one may still be followed by the real acknowledgement
+        if self._on_delivery is not None and self._loop is not None:
+            try:
+                self._loop.call_soon_threadsafe(self._on_delivery, rid, state, why)
+            except RuntimeError:
+                pass
 
     def _on_connection_lost(self, interface: Any) -> None:
         if interface is self._iface:
@@ -269,7 +318,8 @@ class MeshtasticRadio:
 
     # ---- send ---------------------------------------------------------------------------
 
-    async def send_text(self, text: str, to: str | None, channel: int, hop_limit: int) -> None:
+    async def send_text(self, text: str, to: str | None, channel: int, hop_limit: int) -> int | None:
+        """Send a direct message and return its packet id (what its acknowledgement will refer to), or None if the library gave none."""
         if self._iface is None:
             raise RadioError("Radio is not connected.")
         if to is None:  # the lowest layer of the same rule: this adapter has no way to broadcast
@@ -277,9 +327,27 @@ class MeshtasticRadio:
         if byte_len(text) > MAX_PAYLOAD:  # last line of defence; the fitter keeps us well below this
             raise RadioError(f"Refusing to send {byte_len(text)} bytes (limit {MAX_PAYLOAD}).")
         iface = self._iface
-        await asyncio.to_thread(
-            iface.sendText, text, destinationId=to, wantAck=True,
-            channelIndex=channel, hopLimit=hop_limit)
+
+        def send() -> int | None:
+            sent = iface.sendText(text, destinationId=to, wantAck=True, channelIndex=channel, hopLimit=hop_limit)
+            packet_id = getattr(sent, "id", None)
+            if isinstance(packet_id, int) and packet_id:
+                self._track(packet_id, to)  # before the thread returns: an acknowledgement can only come after the radio has sent it
+                return packet_id
+            return None
+
+        return await asyncio.to_thread(send)
+
+    async def post_public(self, text: str, channel: int, hop_limit: int) -> None:
+        """Post to a public channel. ONLY the operator's Messages page calls this, when a person pressed the button (see messaging.py):
+        nothing the engine does can reach it. It is deliberately a different method from `send_text`, which can never broadcast."""
+        if self._iface is None:
+            raise RadioError("Radio is not connected.")
+        if byte_len(text) > MAX_PAYLOAD:
+            raise RadioError(f"Refusing to send {byte_len(text)} bytes (limit {MAX_PAYLOAD}).")
+        if not isinstance(channel, int) or isinstance(channel, bool) or not 0 <= channel <= 7:
+            raise RadioError("That is not a channel.")
+        await asyncio.to_thread(self._iface.sendText, text, destinationId="^all", wantAck=False, channelIndex=channel, hopLimit=hop_limit)
 
     async def traceroute(self, node_id: str, hop_limit: int, timeout: float) -> dict:
         """Send one traceroute request to ONE node and return the reply packet. Raises RadioError, or TimeoutError when nobody answers.

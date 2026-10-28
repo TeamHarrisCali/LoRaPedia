@@ -2,6 +2,7 @@ import { ChangeEvent, useState } from "react";
 import { SaveBar } from "../components/SaveBar";
 import { BackupsCard } from "../components/BackupsCard";
 import { MeshAiCard } from "../components/MeshAiCard";
+import { MessagingCard } from "../components/MessagingCard";
 import { MeshDataCard } from "../components/MeshDataCard";
 import { UpdatesCard } from "../components/UpdatesCard";
 import { Button, Card, Field, PageHeader, SectionTitle, Toggle } from "../components/ui";
@@ -88,6 +89,8 @@ export function SettingsPage() {
       <BackupsCard draft={draft} set={set} />
 
       <MeshAiCard draft={draft} set={set} />
+
+      <MessagingCard draft={draft} set={set} />
 
       <MeshDataCard draft={draft} set={set} />
 

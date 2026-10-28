@@ -29,6 +29,11 @@ def parse_message(text: str, is_dm: bool, prefixes: tuple[str, ...] | list[str] 
     return Parsed("question", body)
 
 
+def has_prefix(text: str, prefixes) -> bool:
+    """Did the sender start with a trigger prefix ("?...", "!wiki ...")? That is a deliberate message to the bot."""
+    return _strip_prefix(text.strip(), prefixes) is not None
+
+
 def _strip_prefix(text: str, prefixes) -> str | None:
     lowered = text.lower()
     # Longest prefix first so "!wiki" wins over a shorter overlapping one.

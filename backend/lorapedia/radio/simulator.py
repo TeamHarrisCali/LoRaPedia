@@ -17,5 +17,6 @@ class SimulatorRadio:
     def __init__(self) -> None:
         self.sent: list[Sent] = []
 
-    async def send_text(self, text: str, to: str | None, channel: int, hop_limit: int) -> None:
+    async def send_text(self, text: str, to: str | None, channel: int, hop_limit: int) -> int | None:
         self.sent.append(Sent(text, to, channel, hop_limit))
+        return None  # nothing is sent over the air, so there is nothing to wait for

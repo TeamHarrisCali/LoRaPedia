@@ -4,6 +4,7 @@ import { partsOf } from "../lib/useQueries";
 import type { QueryRow } from "../lib/types";
 import { Bubble, Typewriter } from "./Bubble";
 import { ByteMeter } from "./ByteMeter";
+import { DeliveryBadge } from "./DeliveryBadge";
 import { Icon } from "./icons";
 import { Badge } from "./ui";
 
@@ -34,6 +35,7 @@ export function QueryItem({ q, expandable = false }: { q: QueryRow; expandable?:
         {parts.length > 1 && <Badge tone="amber">{parts.length} parts</Badge>}
         {q.debug?.fallback && <Badge tone="amber">AI memory, unverified</Badge>}
         {q.debug?.mesh && <Badge tone="teal">from the mesh data</Badge>}
+        <DeliveryBadge state={q.delivery?.state} parts={q.delivery?.parts} />
         {q.sources.map((s) => <Badge key={s} tone="teal">{s}</Badge>)}
       </div>
     </>

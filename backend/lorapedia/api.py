@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import shutil
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from .index import Index, Indexer
 from .llm.base import MockLLM
 from .mesh import sim as mesh_sim
 from .meshask import MeshAsker
+from .messaging import PUBLIC_GAP_S, MessageError, Messenger
 from .mesh.service import MeshService, distance_km
 from .mesh.observe import csv_cell
 from .mesh.store import METRICS as MESH_METRICS
@@ -66,6 +68,17 @@ class NodeToggle(BaseModel):
 
 class PullRequest(BaseModel):
     tag: str
+
+
+class DirectMessage(BaseModel):
+    node_id: str
+    text: str
+
+
+class PublicPost(BaseModel):
+    text: str
+    channel: int = 0
+    confirm: bool = False
 
 
 class TryRequest(BaseModel):
@@ -139,11 +152,17 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     engine: Engine  # created below; the radio manager submits received packets to it
     mesh_store = MeshStore(data / "mesh.db")
     mesh = MeshService(mesh_store, settings, radio_nodes=lambda: radio.nodes(), my_id=lambda: radio.node_id)
-    radio = RadioManager(settings=settings, submit=lambda pkt: engine.submit(pkt), emit=broadcast, on_mesh=mesh.on_packet,
+    def on_delivery(packet_id: int, state: str, detail: str | None) -> None:
+        """The radio learned what became of a message we sent (on the event loop): record it and tell the open pages."""
+        if store.delivery_update(packet_id, state, detail):
+            asyncio.ensure_future(broadcast({"type": "delivery", "packet_id": packet_id, "state": state, "detail": detail}))
+
+    radio = RadioManager(settings=settings, submit=lambda pkt: engine.submit(pkt), emit=broadcast, on_mesh=mesh.on_packet, on_delivery=on_delivery,
                          **{k: v for k, v in (radio_options or {}).items() if k not in _NON_RADIO_OPTIONS})
     engine = Engine(settings=settings, radio=radio, sim_radio=radio.sim, llm=configured_llm,
                     retriever=retriever, store=store, emit=broadcast, library_state=index.library_state,
-                    mesh_ask=MeshAsker(mesh, settings))
+                    mesh_ask=MeshAsker(mesh, settings), operator=lambda pkt, s: messenger.intercept(pkt, s))
+    messenger = Messenger(radio=radio, store=store, settings=settings, emit=broadcast)  # what the operator types: never reachable by the AI
     indexer = Indexer(index, current_embedder())
 
     def register_zim(path: Path) -> dict:
@@ -558,6 +577,51 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
             return await asyncio.to_thread(mesh_store.set_note, mesh_node_id(node_id), body.label, body.note)
         except NoteError as exc:
             raise HTTPException(400, str(exc)) from exc
+
+    # ---- the Messages page: what you type yourself ----------------------------------------------------------------
+
+    def message_error(exc: MessageError) -> HTTPException:
+        return HTTPException(exc.status, str(exc))
+
+    def display_names() -> dict[str, str]:
+        """Your own view: a node's label if you gave it one, else its name (the replies the AI sends never use the label)."""
+        return {r["id"]: r["display"] for r in mesh.rows()}
+
+    @app.get("/api/messages/threads")
+    async def message_threads():
+        names, now = display_names(), time.time()
+        return [{**t, "name": names.get(t["node_id"]) or t["node_id"], "chatting": bool(t["until"] and t["until"] > now)}
+                for t in store.threads()]
+
+    @app.get("/api/messages/thread/{node_id}")
+    async def message_thread(node_id: str):
+        node_id = mesh_node_id(node_id)
+        until = store.chat_until(node_id)
+        return {"node_id": node_id, "name": display_names().get(node_id) or node_id, "messages": store.thread(node_id),
+                "chatting": bool(until and until > time.time()), "chat_until": until, "radio": radio.active}
+
+    @app.post("/api/messages/dm")
+    async def message_dm(body: DirectMessage):
+        try:
+            return await messenger.send_dm(body.node_id, body.text)
+        except MessageError as exc:
+            raise message_error(exc) from exc
+
+    @app.post("/api/messages/chat/{node_id}/end")
+    async def message_chat_end(node_id: str):
+        return {"ended": messenger.end_chat(mesh_node_id(node_id))}
+
+    @app.get("/api/messages/public")
+    async def message_public():
+        return {"enabled": settings().operator_public_post, "connected": radio.active == "meshtastic", "channels": radio.channels(),
+                "posts": store.public_posts(), "gap_s": PUBLIC_GAP_S}
+
+    @app.post("/api/messages/public")
+    async def message_public_post(body: PublicPost):
+        try:
+            return await messenger.post_public(body.text, body.channel, body.confirm)
+        except MessageError as exc:
+            raise message_error(exc) from exc
 
     @app.get("/api/mesh/data")
     async def mesh_data():

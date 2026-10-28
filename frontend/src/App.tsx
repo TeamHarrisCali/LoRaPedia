@@ -6,6 +6,7 @@ import { ToastProvider } from "./lib/toast";
 import { Dashboard } from "./pages/Dashboard";
 import { Knowledge } from "./pages/Knowledge";
 import { LiveFeed } from "./pages/LiveFeed";
+import { Messages } from "./pages/Messages";
 import { Model } from "./pages/Model";
 import { Links } from "./pages/Links";
 import { MapPage } from "./pages/MapPage";
@@ -30,6 +31,8 @@ export default function App() {
                 <Route path="knowledge" element={<Knowledge />} />
                 <Route path="model" element={<Model />} />
                 <Route path="radio" element={<Radio />} />
+                <Route path="messages" element={<Messages />} />
+                <Route path="messages/:id" element={<Messages />} />
                 <Route path="nodes" element={<Nodes />} />
                 <Route path="nodes/:id" element={<Nodes />} />
                 <Route path="map" element={<MapPage />} />

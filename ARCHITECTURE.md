@@ -29,7 +29,10 @@ In words:
 5. **Byte fitter.** The answer is cleaned and forced to fit the byte limit (see below).
 6. **Sender.** The reply goes to the original sender as a direct message, with the configured hop limit and a pause between parts.
    Nothing in this path can post to a public channel: the parser ignores public messages, the engine refuses to send for one,
-   the radio manager refuses a message with no addressee, and the Meshtastic adapter has no broadcast at all.
+   the radio manager refuses a message with no addressee, and the Meshtastic adapter's `send_text` has no broadcast at all. (A post you type
+   yourself on the Messages page uses a separate method, `post_public`, that the engine never imports or calls: see `messaging.py`.)
+   Each part sent over a real radio is followed: the adapter matches the radio's routing acknowledgements to the packet ids it sent and
+   `deliveries` records sent / relayed / delivered / failed (an acknowledgement from the addressee is delivered, one from a neighbour only relayed).
 
 If nothing relevant is retrieved (or the model says the context does not answer), the reply depends on how far
 indexing has got. Once every article is searchable (`library_state` is `covered` or `complete`), "no match" is certain,
@@ -72,6 +75,7 @@ not be indexed yet.
 | `fitter.py` | Byte counting, text cleaning, truncation, splitting into parts. Pure functions. |
 | `triggers.py` | Question / command / ignore decision for a message. Pure. |
 | `meshask.py` | Questions about the mesh itself: a rule-based router and a fixed menu of read-only lookups over `mesh.db`. No model, no transmitting; replies use only a node's own name, never your label. |
+| `messaging.py` | What the operator types: a direct message to one node, a chat window (what the node says back is kept for the operator, not answered), and an opt-in public post. The only caller of `post_public`; the engine gets only a callback to step aside. |
 | `memory.py` | Each sender's last few answered questions for follow-ups. RAM only, per sender, expires after idle time. |
 | `ratelimit.py` | Per-node sliding window. Takes an injectable clock. |
 | `radio/manager.py` | Chooses the real radio or the simulator, reconnects with backoff, forwards received packets. |

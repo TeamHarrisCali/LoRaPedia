@@ -16,7 +16,7 @@ from .radio.base import Packet, Radio
 from .ratelimit import RateLimiter
 from .retrieval.base import Retriever
 from .sources import order_sources
-from .store import Store
+from .store import Store, summarize_delivery
 from .triggers import parse_message
 
 log = logging.getLogger(__name__)
@@ -72,6 +72,7 @@ class Engine:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         library_state: Callable[[], str] = lambda: "none",
         mesh_ask: MeshAsker | None = None,
+        operator: Callable[[Packet, Settings], Awaitable[bool]] | None = None,
     ) -> None:
         # "complete"/"covered": every article is searchable, so "no match" is definitive. "partial": still indexing.
         self._library_state = library_state
@@ -85,6 +86,9 @@ class Engine:
         self._more: dict[str, list[str]] = {}  # sender -> parts not yet sent
         self._delayed: set[asyncio.Task] = set()  # questions waiting out their node's cooldown
         self.mesh_ask = mesh_ask  # questions about the mesh itself, answered without the model
+        # Hands a message that belongs to one of the operator's chats to the Messages page (True = it was taken). All the engine ever gets
+        # of operator messaging: a way to step aside, never a way to send.
+        self._operator = operator
         self.memory = ConversationMemory(clock)  # each sender's last few answered questions, for follow-ups; RAM only
 
     # ---- intake -------------------------------------------------------------------------
@@ -110,6 +114,9 @@ class Engine:
         if parsed.kind == "command":
             self.queue.put_nowait(Job(packet, reply=self._command_reply(parsed.text, packet, s)))
             return "command"
+
+        if self._operator is not None and await self._operator(packet, s):
+            return "operator"  # part of a chat the operator started: for them, not for the AI
 
         if self.pending_count >= s.queue_max:
             self.queue.put_nowait(Job(packet, reply="Busy, try again later."))
@@ -194,14 +201,14 @@ class Engine:
         if job.question is None:
             # Canned replies (help/stats/busy/more) are clamped too: the byte limit is a hard guarantee.
             room = s.byte_limit
-            await self._send(job.packet, [fitter.truncate_bytes(job.reply or "", room)], s)
+            await self._send(job.packet, [fitter.truncate_bytes(job.reply or "", room)], s)  # a canned reply: its delivery is tracked, but belongs to no answer
             return
 
         started = self._clock()
         gen = await self.generate(job.question, s, sender=job.packet.sender_id)
         parts, chunks, prompt, compressed = gen.parts, gen.chunks, gen.prompt, gen.compressed
 
-        await self._send(job.packet, parts, s)
+        packet_ids = await self._send(job.packet, parts, s)
         if gen.found and not gen.fallback and not gen.mesh:
             # Only what the library answered: a mesh answer holds strangers' names, a guess is the least reliable thing we say.
             self.memory.remember(job.packet.sender_id, job.question, gen.raw, s.memory_hours * 3600)
@@ -213,6 +220,9 @@ class Engine:
                    "chunks": [{"title": c.title, "text": c.text, "score": c.score} for c in chunks]},
         )
         entry["id"] = self.store.log_query(**entry)
+        self.store.delivery_attach(packet_ids, entry["id"])  # so the Live Feed can say whether each part arrived
+        sent = self.store.deliveries_for([entry["id"]]).get(entry["id"], [])
+        entry["delivery"] = {"state": summarize_delivery([p["state"] for p in sent]), "parts": sent}
         await self._publish({"type": "query", **entry})
 
     async def generate(self, question: str, s: Settings, prefix_bytes: int = 0, sender: str | None = None) -> "Generated":
@@ -253,19 +263,19 @@ class Engine:
             state = self._library_state()
             if state in ("complete", "covered") and s.ai_fallback:
                 # Every article is searchable, so "not in any article" is certain: the model may speak from memory, marked as a guess.
-                guess = await self._ai_memory(query, s, limit)  # one message at most: see below
+                guess = await self._ai_memory(query, s, budget)  # up to the same number of parts as any answer
                 raw = FALLBACK_PREFIX + guess if guess else NOT_FOUND
                 fallback = bool(guess)
             else:
                 raw = NOT_FOUND_PARTIAL if state == "partial" else NOT_FOUND
 
-        # step 3: guaranteed-safe truncate + split (never exceeds the limit)
-        # A guess is the least reliable thing we send, so it never uses more than one message of airtime.
-        parts = fitter.fit_answer(raw, limit, 1 if fallback else max_parts)
+        # step 3: guaranteed-safe truncate + split (never exceeds the limit). A guess continues over several messages like any answer: cutting
+        # it at one message left sentences ending in "..." (the warning is in the first part, which is the one everybody reads).
+        parts = fitter.fit_answer(raw, limit, max_parts)
         return Generated(parts, chunks, prompt, compressed, raw, fallback, found, order_sources(raw, chunks) if found else [])
 
     async def _ai_memory(self, question: str, s: Settings, budget: int) -> str | None:
-        """A short answer from the model's own knowledge, or None if it does not know."""
+        """A short answer from the model's own knowledge, or None if it does not know. `budget` is all the bytes the parts may hold."""
         room = budget - fitter.byte_len(FALLBACK_PREFIX)
         if room < 20:
             return None
@@ -273,6 +283,11 @@ class Engine:
             text = fitter.clean_text(await self.llm.generate(
                 FALLBACK_SYSTEM, f"Question: {question}\n\nAnswer in at most {room} bytes.",
                 temperature=s.temperature, max_tokens=s.max_tokens))
+            if fitter.byte_len(text) > room:  # a small model overshoots: ask once for a shorter version, like an answer from the library
+                shorter = fitter.clean_text(await self.llm.generate(
+                    FALLBACK_SYSTEM, f"REWRITE this answer in at most {room} bytes, keeping the key facts:\n{text}",
+                    temperature=s.temperature, max_tokens=s.max_tokens))
+                text = shorter or text
         except Exception:
             log.warning("AI-memory fallback failed", exc_info=True)  # the library lookup already worked; just say not found
             return None
@@ -293,23 +308,29 @@ class Engine:
 
     # ---- sending ------------------------------------------------------------------------
 
-    async def _send(self, packet: Packet, parts: list[str], s: Settings) -> None:
+    async def _send(self, packet: Packet, parts: list[str], s: Settings) -> list[int]:
+        """Send each part to the person who asked. Returns the packet ids of the parts a real radio sent (what their acknowledgements name)."""
         if not packet.is_dm:
             # The guarantee, second layer (submit() already ignores public messages): a reply is only ever addressed to the person
             # who asked, so even a public packet that somehow reached the worker gets nothing posted to the channel.
             log.warning("not replying to a public message: LoRaPedia answers direct messages only")
-            return
+            return []
         to = packet.sender_id
         send_now = parts
         if not s.auto_send_parts and len(parts) > 1:
             # Hold the rest for "?more"; hint at it only if the hint fits in the first part.
             self._more[packet.sender_id] = parts[1:]
             send_now = [parts[0] + MORE_HINT]  # room was reserved in process()
+        ids: list[int] = []
         for i, part in enumerate(send_now):
             if i:
                 await self._sleep(s.send_delay_s)  # respect LoRa airtime between parts
             radio = self.sim_radio if packet.simulated and self.sim_radio else self.radio
-            await radio.send_text(part, to, packet.channel, s.hop_limit)
+            packet_id = await radio.send_text(part, to, packet.channel, s.hop_limit)
+            if packet_id is not None:
+                self.store.delivery_sent(packet_id, to, part=i)
+                ids.append(packet_id)
+        return ids
 
     async def _publish(self, event: dict) -> None:
         if self._emit:

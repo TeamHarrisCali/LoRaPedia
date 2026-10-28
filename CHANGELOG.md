@@ -5,6 +5,24 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Added (beta: the MeshtasticLLM merge, phase 5: Messages and delivery tracking)
+- **Delivery tracking.** Every message sent over a real radio asks for an acknowledgement and the Live Feed shows what came back for each
+  answer: Delivered (the other node confirmed it), Passed on (a neighbour repeated it), Sent, waiting, Not confirmed (nothing heard in 3
+  minutes) or Failed with the reason the mesh gave. An answer in several parts is delivered only when every part was. Not yet checked
+  against a real radio: matching the acknowledgements is tested with the library's packet shapes.
+- **Messages page.** Write to a node yourself: a direct message to one node (never to everyone, never to this radio), with the delivery
+  report. After you write to a node, what it sends back (unless it starts with `?` or `!wiki`) is kept on the page and the AI does not
+  answer it, for 30 minutes (Settings → Messages; 0 = off; "End chat" closes it at once). Your messages are kept in `lorapedia.db` for the
+  mesh-data retention period.
+- **Public posts, off by default.** Settings → Messages → "Allow me to post to a public channel". When on, you can type a message, choose
+  a channel, confirm, and post (once a minute, real radio only). The AI still can never post publicly: the post is a separate method that
+  only the Messages page calls, tests read the source to check it, and the rule "LoRaPedia replies by direct message only" is unchanged.
+
+### Fixed
+- **A long answer from the AI's own memory was cut off with "..." at 200 bytes and never continued.** Guesses were limited to one message
+  on purpose; they now continue over several messages like any answer, and one that comes out too long is rewritten once to fit instead of
+  being cut mid-sentence. The warning stays at the start of the first part.
+
 ## [0.2.0-beta.7] - 2026-10-28
 
 A test version for the beta channel: the MeshtasticLLM merge, phase 4.
