@@ -219,3 +219,19 @@ def test_the_updater_only_writes_where_its_read_only_container_allows():
     assert svc["read_only"] is True and "/tmp" in svc["tmpfs"]
     assert any(str(v).endswith(":/state") for v in svc["volumes"])  # the volume TUF_ROOT lives in
     assert any(str(v).endswith(":/project") for v in svc["volumes"])  # where .env is written
+
+
+def test_the_override_example_is_valid_inert_and_covers_the_machine_specific_settings():
+    base = yaml.safe_load(read("docker-compose.yml"))["services"]
+    ex = yaml.safe_load(read("docker-compose.override.example.yml"))["services"]
+    assert set(ex) <= set(base)  # it can only configure services that exist
+    assert "devices" in ex["lorapedia"] and "group_add" in ex["lorapedia"] and "deploy" in ex["ollama"]
+    assert "docker-compose.override.yml" in read(".gitignore").splitlines()  # the real one is never committed
+    assert "docker-compose.override.example.yml" not in read(".gitignore")  # but the example is shipped
+
+
+def test_ollama_settings_that_were_measured_stay_in_the_compose_file():
+    env = yaml.safe_load(read("docker-compose.yml"))["services"]["ollama"]["environment"]
+    assert env["OLLAMA_CONTEXT_LENGTH"] == "4096"  # 3B model: ~2.4 GB instead of ~4 GB of GPU memory
+    assert env["CUDA_CACHE_PATH"].startswith("/root/.ollama/")  # inside the persistent volume (127 s -> 5 s after a recreate)
+    assert int(env["CUDA_CACHE_MAXSIZE"]) >= 1 << 30

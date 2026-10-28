@@ -240,6 +240,36 @@ def test_if_rolling_back_fails_too_the_message_says_so(tmp_path):
         up.apply()
 
 
+def compose_up(fake):
+    return next(c for c in fake.calls if c[1] == "compose")
+
+
+def test_machine_specific_settings_in_an_override_file_survive_an_update(tmp_path):
+    """Compose loads docker-compose.override.yml by itself only when no -f is given; the updater always gives one. Without naming the
+    override explicitly an update would silently drop the USB radio mapping and GPU settings kept there (a real near-miss)."""
+    up, fake, cfg = make(tmp_path)
+    Path(cfg.override_file).write_text("services:\n  lorapedia:\n    devices: ['/dev/ttyACM0:/dev/ttyACM0']\n")
+    up.apply()
+    cmd = compose_up(fake)
+    files = [cmd[i + 1] for i, a in enumerate(cmd) if a == "-f"]
+    assert files == [cfg.compose_file, cfg.override_file]  # base first, override after, so the override wins
+
+
+def test_without_an_override_only_the_compose_file_is_named(tmp_path):
+    up, fake, cfg = make(tmp_path)
+    up.apply()
+    cmd = compose_up(fake)
+    assert [cmd[i + 1] for i, a in enumerate(cmd) if a == "-f"] == [cfg.compose_file]
+
+
+def test_the_rollback_also_keeps_the_override(tmp_path):
+    up, fake, cfg = make(tmp_path, healthy=False)
+    Path(cfg.override_file).write_text("services: {}\n")
+    up.apply()
+    ups = [c for c in fake.calls if c[1] == "compose"]
+    assert len(ups) == 2 and all(cfg.override_file in c for c in ups)  # the switch AND the roll-back
+
+
 def test_the_env_writer_changes_only_what_it_is_told_and_refuses_unsafe_input(tmp_path):
     up, _, cfg = make(tmp_path)
     up._write_env({"LORAPEDIA_IMAGE": "x", "NEW_KEY": "1"})

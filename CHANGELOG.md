@@ -5,6 +5,23 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Added
+- Moving a `./run.sh` install into Docker: `scripts/migrate-to-docker.sh` copies the data folder into the compose volume (the
+  source is never changed) and fixes what points at the old machine (the library's absolute file paths and a saved `localhost`
+  Ollama address). See `docs/MIGRATING.md`.
+- `docker-compose.override.example.yml`: machine-specific settings (USB radio, GPU, port) go in `docker-compose.override.yml`, which
+  git ignores.
+
+### Changed
+- The compose file sets `OLLAMA_CONTEXT_LENGTH=4096` (the 3B model then needs about 2.4 GB of GPU memory instead of about 4 GB, so
+  both models fit a 4 GB card) and keeps the GPU kernel cache in the models volume (the first answer after the Ollama container is
+  recreated took about 2 minutes; with the cache it takes seconds). Existing installs get this by fetching the new compose file.
+
+### Fixed
+- **The updater ignored `docker-compose.override.yml`.** It names the compose file explicitly, which stops Compose from loading the
+  override, so an automatic update would have silently dropped a USB radio mapping or GPU setting kept there. It now includes the
+  override (for the switch and for the roll-back).
+
 ## [0.1.2] - 2026-10-26
 
 ### Fixed

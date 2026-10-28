@@ -54,8 +54,9 @@ docker compose up -d
 Open **http://localhost:8000**. The first visit starts the setup wizard.
 
 This pulls the signed release images and starts LoRaPedia, an Ollama server, and a small **updater** that keeps LoRaPedia
-current (see [Updates](#updates)). Data lives in Docker volumes and survives restarts. For a USB radio, see the USB section
-of [docker-compose.yml](docker-compose.yml) (two lines to uncomment). Developing instead? `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build`.
+current (see [Updates](#updates)). Data lives in Docker volumes and survives restarts. For a USB radio or an NVIDIA GPU, copy
+[docker-compose.override.example.yml](docker-compose.override.example.yml) to `docker-compose.override.yml` and edit it. Moving an
+existing `./run.sh` install? See [docs/MIGRATING.md](docs/MIGRATING.md). Developing instead? `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build`.
 
 **Docker or not?** Docker is the supported, auto-updating path on Linux, Raspberry Pi 5 and Jetson. It has limits: Bluetooth
 radios do not work inside a container; a USB radio's device mapping is fixed when the container starts, so after unplugging it

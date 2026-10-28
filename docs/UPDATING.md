@@ -54,7 +54,8 @@ This is exactly what the updater runs before it installs anything.
 3. The updater reads GitHub's latest stable release itself, refuses anything not strictly newer than what runs, pulls
    `ghcr.io/teamharriscali/lorapedia:<version>`, and verifies its signature (above). A failing image is deleted.
 4. It keeps the current image as `lorapedia-rollback:previous`, records the verified image **by digest** as `LORAPEDIA_IMAGE` in
-   the `.env` next to `docker-compose.yml`, and runs `docker compose up -d --no-deps lorapedia`.
+   the `.env` next to `docker-compose.yml`, and runs `docker compose up -d --no-deps lorapedia`, naming `docker-compose.yml` **and your `docker-compose.override.yml` if you have one**
+   (so a USB radio mapping or GPU setting kept there survives the update).
 5. It waits up to three minutes for the new container to be **healthy and to report the new version**. If not, it puts the
    previous image back and remembers the failed version so it is not retried.
 

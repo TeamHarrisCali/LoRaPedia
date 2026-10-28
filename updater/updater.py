@@ -86,6 +86,15 @@ class Config:
     def compose_file(self):
         return os.path.join(self.project_dir, "docker-compose.yml")
 
+    @property
+    def override_file(self):
+        """Machine-specific settings (USB radio mapping, GPU, port) live here. Compose loads it by itself only when no -f is given,
+        and the updater always gives one, so it must be named explicitly or an update would silently drop them."""
+        return os.path.join(self.project_dir, "docker-compose.override.yml")
+
+    def compose_files(self) -> list[str]:
+        return [self.compose_file] + ([self.override_file] if os.path.isfile(self.override_file) else [])
+
 
 @dataclass
 class State:
@@ -318,7 +327,8 @@ class Updater:
 
     # ---- compose + .env --------------------------------------------------------------------------------------------
     def _compose_up(self, project: str):
-        self._ok("compose", "-p", project, "--project-directory", self.cfg.project_dir, "-f", self.cfg.compose_file,
+        files = [arg for f in self.cfg.compose_files() for arg in ("-f", f)]
+        self._ok("compose", "-p", project, "--project-directory", self.cfg.project_dir, *files,
                  "up", "-d", "--no-deps", "--no-build", "--pull", "never", SERVICE, what="Starting the new version")
 
     def _wait_healthy(self, project: str, version: str) -> str | None:

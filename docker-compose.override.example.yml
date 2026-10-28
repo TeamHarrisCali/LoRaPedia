@@ -1,0 +1,30 @@
+# Machine-specific settings for docker-compose.yml. Copy this file to docker-compose.override.yml and edit it:
+#
+#     cp docker-compose.override.example.yml docker-compose.override.yml
+#
+# Docker Compose loads docker-compose.override.yml by itself, the updater includes it when it replaces the app container (so
+# these survive automatic updates), and git ignores it, so `git pull` never conflicts with it. This example file does nothing
+# on its own. Delete what you do not need.
+
+services:
+  lorapedia:
+    # --- USB radio (Linux) -----------------------------------------------------------------------------------------
+    #   ls /dev/serial/by-id/          # a stable name for each radio, e.g. usb-Adafruit_WisCore_RAK4631_Board_XXXX-if00
+    #   stat -c %g /dev/ttyACM0        # the numeric group of the device: "uucp" on Arch, "dialout" on Debian/Ubuntu/Raspberry Pi OS
+    # Then in the web interface: Radio -> "Automatic (USB)".
+    devices:
+      - /dev/serial/by-id/usb-REPLACE-ME:/dev/ttyACM0
+    group_add:
+      - "20"
+    # --- A different port. The web interface has NO PASSWORD: keep 127.0.0.1 unless you trust the whole network (see README, Security).
+    # ports: !override ["127.0.0.1:8080:8000"]
+
+  ollama:
+    # --- NVIDIA GPU (needs the NVIDIA Container Toolkit: see docs/MIGRATING.md) ------------------------------------
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

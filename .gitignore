@@ -18,7 +18,8 @@ data/
 frontend/node_modules/
 frontend/dist/
 
-# Local environment / editor
+# Local environment / editor (docker-compose.override.yml holds this machine's radio, GPU and port settings)
+docker-compose.override.yml
 .env
 .env.local
 .DS_Store

@@ -37,19 +37,11 @@ services:
       LORAPEDIA_UPDATER_URL: http://updater:8081
       LORAPEDIA_UPDATER_TOKEN_FILE: /run/lorapedia-updater/token
 
-    # --- USB radio (Linux) -----------------------------------------------------------------------------------------
-    # 1. Find the port:   ls /dev/ttyACM* /dev/ttyUSB*
-    # 2. Uncomment the two blocks below and use YOUR port.
-    # 3. Radio page -> "Automatic (USB)" or "USB, choose the port" -> /dev/ttyACM0
-    # `group_add` lets the non-root container user open the device: use the numeric group id of the device's group
-    # (stat -c %g /dev/ttyACM0). Some radios (e.g. RAK4631) re-appear when the port is closed, so after unplugging or a
-    # radio reset you may need `docker compose restart lorapedia`. A WiFi/network radio avoids this.
-    # devices:
-    #   - /dev/ttyACM0:/dev/ttyACM0
-    # group_add:
-    #   - "20"        # "dialout" on Debian/Ubuntu is 20; on Arch it is "uucp" (look it up with the stat command above)
-    #
-    # Bluetooth is not supported inside Docker; run ./run.sh for BLE.
+    # --- USB radio, GPU, a different port: put them in docker-compose.override.yml -----------------------------------
+    # Copy docker-compose.override.example.yml to docker-compose.override.yml and edit it. Compose loads that file by itself and the
+    # updater includes it when it replaces this container, so your radio mapping survives updates. It is ignored by git.
+    # Some radios (e.g. RAK4631) re-appear when the serial port is closed, so after unplugging one or a radio reset you may need
+    # `docker compose restart lorapedia`. A WiFi/network radio avoids this. Bluetooth is not supported inside Docker: use ./run.sh.
 
   updater:
     image: ${LORAPEDIA_UPDATER_IMAGE:-ghcr.io/teamharriscali/lorapedia-updater:latest}
@@ -70,14 +62,16 @@ services:
     restart: unless-stopped
     volumes:
       - ollama-models:/root/.ollama   # downloaded models live here
-    # NVIDIA GPU (optional; needs the NVIDIA Container Toolkit). Uncomment to use it:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    environment:
+      # LoRaPedia's prompts are small. Ollama's default context made llama3.2:3b occupy about 4 GB of GPU memory here; 4096 needs
+      # about 2.4 GB, so the chat and embedding models both fit a 4 GB card. Raise it if you raise "Passages retrieved" above ~10.
+      OLLAMA_CONTEXT_LENGTH: "4096"
+      # NVIDIA GPUs compile kernels the first time. Without a persistent cache, the first answer after this container is RECREATED
+      # (not restarted) takes about two minutes. Kept in the volume, the second time takes seconds (measured: 127 s, then 5 s).
+      CUDA_CACHE_PATH: /root/.ollama/cuda-cache
+      CUDA_CACHE_MAXSIZE: "4294967296"
+    # NVIDIA GPU: needs the NVIDIA Container Toolkit. Put the `deploy:` block from docker-compose.override.example.yml into your
+    # docker-compose.override.yml (machine-specific settings belong there, not in this file).
 
 volumes:
   lorapedia-data:
