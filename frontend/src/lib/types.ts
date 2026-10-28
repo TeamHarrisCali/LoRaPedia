@@ -73,6 +73,18 @@ export interface MeshReading { ts: number; node_id: string; node_name: string | 
 export interface MeshPacketTrend { days: number; hours: [number, number][]; kinds: [string, number][] }
 export interface MeshHopTrend { days: number; hours: [number, number, number][]; summary: { packets: number; average_relays: number | null; share_direct: number | null; furthest: number | null } }
 
+export interface TraceHop { num: number | null; id: string | null; name: string | null; snr: number | null; lat: number | null; lon: number | null }
+export interface TraceRow {
+  id: number; ts: number; node_id: string; node_name?: string | null; hop_limit: number; status: "ok" | "timeout" | "error"; detail: string | null;
+  latency_ms: number | null; relays_towards: number | null; relays_back: number | null; path_towards: TraceHop[] | null; path_back: TraceHop[] | null;
+}
+export interface TraceState { id: number; status: "waiting" | "ok" | "timeout" | "error"; node_id: string; detail?: string | null; trace?: TraceRow }
+export interface MeshLink {
+  id: string; name: string; lat: number | null; lon: number | null; distance_km: number | null; packets: number;
+  snr_avg: number; snr_min: number; snr_max: number; rssi_avg: number; rssi_min: number; rssi_max: number; last: number;
+}
+export interface MeshLinks { days: number; us: { lat: number; lon: number } | null; links: MeshLink[]; farthest: { id: string; name: string; distance_km: number } | null }
+
 export interface Health {
   radio: "meshtastic" | "simulator";
   queue: number;

@@ -9,6 +9,7 @@ import asyncio
 import glob
 import logging
 import os
+import re
 import stat
 import time
 from collections import deque
@@ -279,6 +280,34 @@ class MeshtasticRadio:
         await asyncio.to_thread(
             iface.sendText, text, destinationId=to, wantAck=True,
             channelIndex=channel, hopLimit=hop_limit)
+
+    async def traceroute(self, node_id: str, hop_limit: int, timeout: float) -> dict:
+        """Send one traceroute request to ONE node and return the reply packet. Raises RadioError, or TimeoutError when nobody answers.
+
+        Addressed to a single node and never to everyone; the caller (mesh/traceroute.py) decides whether one may be sent now."""
+        if self._iface is None:
+            raise RadioError("Radio is not connected.")
+        if not isinstance(node_id, str) or not re.fullmatch(r"![0-9a-f]{8}", node_id) or node_id == "!ffffffff":
+            raise RadioError("A traceroute goes to one node, never to everyone.")
+        from meshtastic.protobuf import mesh_pb2, portnums_pb2
+        loop, iface = asyncio.get_running_loop(), self._iface
+        fut = loop.create_future()
+
+        def on_response(packet: dict) -> None:  # runs on the meshtastic thread
+            decoded = packet.get("decoded") or {}
+            if decoded.get("portnum") == "ROUTING_APP" and (decoded.get("routing") or {}).get("errorReason", "NONE") == "NONE":
+                return  # a plain acknowledgement, not the answer
+            loop.call_soon_threadsafe(lambda: fut.done() or fut.set_result(packet))
+
+        def send() -> None:
+            iface.sendData(mesh_pb2.RouteDiscovery(), destinationId=node_id, portNum=portnums_pb2.PortNum.TRACEROUTE_APP,
+                           wantResponse=True, onResponse=on_response, channelIndex=0, hopLimit=hop_limit)
+
+        try:
+            await asyncio.to_thread(send)
+        except Exception as exc:
+            raise RadioError(f"Could not send the traceroute ({exc.__class__.__name__}).") from exc
+        return await asyncio.wait_for(fut, timeout)
 
     # ---- info for the UI ----------------------------------------------------------------
 

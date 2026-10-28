@@ -5,6 +5,18 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Added (beta: the MeshtasticLLM merge, phase 3)
+- **Traceroute.** Pick a node and LoRaPedia asks the mesh which way a packet takes to it and back, with the signal at each hop, shown as
+  two lists and on a map (solid there, dashed back, dotted across hops with no known position) and saved to a history. A traceroute
+  transmits and every node on the path repeats the packet, so it is deliberately hard to do by accident: only on your click (never on a
+  schedule, never from the AI), to one node (never to everyone, never to this radio, only a node already heard), one at a time, the same
+  node at most once every 30 seconds, with a 60 second wait. Without a radio it makes up a route from known nodes and says so. The radio
+  adapter has no way to send a traceroute to everyone.
+- **Link quality.** For the nodes your radio hears directly (no relay): signal against distance with the weakest decodable signal marked,
+  best and weakest links, the farthest one, and a table with average, worst and best signal, RSSI, packets, distance and last heard. The
+  Map can overlay the same links, coloured by signal and thicker for nodes heard more often. Distances need this radio to have a known
+  position.
+
 ## [0.2.0-beta.5] - 2026-10-28
 
 A test version for the beta channel: the MeshtasticLLM merge, phase 2.

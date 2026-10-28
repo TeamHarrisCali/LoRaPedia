@@ -148,6 +148,12 @@ class RadioManager:
             self._last_status = comparable
             await self._emit_event({"type": "radio", "status": status})
 
+    async def traceroute(self, node_id: str, hop_limit: int, timeout: float) -> dict:
+        """One traceroute through the real radio. With only the simulator there is nothing to trace with: the caller handles that case."""
+        if not (self._real and self._real.connected):
+            raise RadioError("No radio is connected.")
+        return await self._real.traceroute(node_id, hop_limit, timeout)
+
     # ---- info for the UI ----------------------------------------------------------------
 
     @property

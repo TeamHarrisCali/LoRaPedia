@@ -61,3 +61,23 @@ def seed(service: MeshService, now: float, hours: int = 24, seed_value: int = 7)
     for o in events:
         service.record(o)
     return len(events)
+
+
+def simulated_reply(node_id: str, hop_limit: int, rows: list[dict], my_num: int) -> dict:
+    """A made-up traceroute reply for the simulator, shaped like the one the radio library hands over (quarter-dB signal values).
+
+    The route runs through other known nodes that are nearer to us than the target. Deterministic for a given target."""
+    by_id = {r["id"]: r for r in rows if r.get("num")}
+    target = by_id[node_id]
+    hops = target.get("hops") or 0
+    depth = max(0, min(hops, hop_limit) - 1) if hops else 0
+    seed = int(node_id[1:], 16)
+    pool = sorted((r for r in by_id.values() if r["id"] != node_id and r["num"] != my_num and not r.get("us") and (r.get("hops") or 0) < max(hops, 1)),
+                  key=lambda r: r["id"])  # never this radio itself: it is the start of the route, not a relay on it
+    relays = [r["num"] for r in pool[:depth]]
+    back = list(reversed(relays))
+    snr = lambda i, base: int(round((base - 2.5 * i + ((seed >> i) % 5) - 2) * 4))
+    return {"_simulated": True, "from": target["num"], "to": my_num, "hopStart": 3,
+            "decoded": {"portnum": "TRACEROUTE_APP", "traceroute": {
+                "route": relays, "routeBack": back, "snrTowards": [snr(i, 7) for i in range(len(relays) + 1)],
+                "snrBack": [snr(i + 3, 6) for i in range(len(back) + 1)]}}}

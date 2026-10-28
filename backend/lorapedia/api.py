@@ -25,9 +25,10 @@ from .engine import Engine
 from .index import Index, Indexer
 from .llm.base import MockLLM
 from .mesh import sim as mesh_sim
-from .mesh.service import MeshService
+from .mesh.service import MeshService, distance_km
 from .mesh.observe import csv_cell
 from .mesh.store import METRICS as MESH_METRICS
+from .mesh.traceroute import Busy, TracerouteError, TracerouteService
 from .mesh.store import MeshStore, NODE_ID_RE, NoteError
 from .llm.openai_compat import OpenAICompatLLM
 from .radio.base import Packet
@@ -637,6 +638,76 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
                 "summary": {"packets": total, "average_relays": round(sum(h * n for _, h, n in hours) / total, 2) if total else None,
                             "share_direct": round(sum(n for _, h, n in hours if h == 0) / total, 3) if total else None,
                             "furthest": max((h for _, h, n in hours), default=None)}}
+
+    # ---- traceroute and link quality -------------------------------------------------------------------
+
+    def _by_num() -> dict:
+        return {r["num"]: {"id": r["id"], "name": r["display"], "lat": r["lat"], "lon": r["lon"]} for r in mesh.rows() if r.get("num")}
+
+    def _my_num() -> int | None:
+        try:
+            return int(radio.node_id[1:], 16)
+        except ValueError:
+            return None
+
+    async def _trace_send(node_id: str, hop_limit: int, timeout: float) -> dict:
+        if radio.active == "meshtastic":
+            return await radio.traceroute(node_id, hop_limit, timeout)
+        rows = await asyncio.to_thread(mesh.rows)
+        return mesh_sim.simulated_reply(node_id, hop_limit, rows, _my_num() or 0)  # no radio: a made-up route, marked as such
+
+    tracer = TracerouteService(mesh_store, _trace_send, _by_num, lambda: radio.node_id, _my_num)
+    app.state.tracer = tracer
+
+    class TraceBody(BaseModel):
+        node_id: str
+        hop_limit: int = 3
+
+    @app.post("/api/mesh/traceroute", status_code=202)
+    async def mesh_traceroute(body: TraceBody):
+        """Start a traceroute to one node we have heard of. It transmits over the radio (nothing, with the simulator)."""
+        known = {r["id"] for r in await asyncio.to_thread(mesh.rows)}
+        if body.node_id.strip().lower() not in known:
+            raise HTTPException(400, "That node has not been heard yet, so there is nothing to trace to.")
+        try:
+            return {"id": tracer.start(body.node_id, body.hop_limit), "simulated": radio.active != "meshtastic"}
+        except Busy as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except TracerouteError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/mesh/traceroute/{rid}")
+    async def mesh_traceroute_state(rid: int):
+        st = tracer.state(rid)
+        if st is None:
+            raise HTTPException(404, "That traceroute is no longer known. See the history.")
+        return st
+
+    @app.get("/api/mesh/traceroutes")
+    async def mesh_traceroutes(limit: int = 30, before: int = 0):
+        rows = await asyncio.to_thread(mesh_store.traceroutes, clamp(limit, 1, 200), before or None)
+        names = {r["id"]: r["display"] for r in await asyncio.to_thread(mesh.rows)}
+        return {"traceroutes": [{**r, "node_name": names.get(r["node_id"])} for r in rows]}
+
+    @app.get("/api/mesh/links")
+    async def mesh_links(days: int = 7):
+        """How well each node heard DIRECTLY (no relay) is received: the signal that describes the node itself, with its distance."""
+        days = clamp(days, 1, 30)
+        summary = await asyncio.to_thread(mesh_store.links_summary, int((mesh._clock() - days * 86400) // 3600))
+        rows = {r["id"]: r for r in await asyncio.to_thread(mesh.rows)}
+        us = next((r for r in rows.values() if r["us"] and r["lat"] is not None), None)
+        out = []
+        for s in summary:
+            r = rows.get(s["node_id"])
+            if r is None:
+                continue
+            d = distance_km(us["lat"], us["lon"], r["lat"], r["lon"]) if us and r["lat"] is not None else None
+            out.append({"id": s["node_id"], "name": r["display"], "lat": r["lat"], "lon": r["lon"], "distance_km": round(d, 3) if d is not None else None,
+                        "packets": s["n"], "snr_avg": round(s["snr_avg"], 1), "snr_min": s["snr_min"], "snr_max": s["snr_max"],
+                        "rssi_avg": round(s["rssi_avg"]), "rssi_min": s["rssi_min"], "rssi_max": s["rssi_max"], "last": s["last_hour"] * 3600})
+        far = max((x for x in out if x["distance_km"] is not None), key=lambda x: x["distance_km"], default=None)
+        return {"days": days, "us": {"lat": us["lat"], "lon": us["lon"]} if us else None, "links": out,
+                "farthest": {"id": far["id"], "name": far["name"], "distance_km": far["distance_km"]} if far else None}
 
     @app.post("/api/mesh/demo")
     async def mesh_demo():

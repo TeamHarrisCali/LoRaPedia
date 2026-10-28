@@ -4,6 +4,7 @@ long-running record of the radio's surroundings can be pruned, exported or delet
 Every "hour" column is whole hours since 1970 (UTC). All times are this computer's clock, never the radio's, which can be wrong.
 Thread-safe: one connection, one lock, like store.py.
 """
+import json
 import re
 import sqlite3
 import threading
@@ -50,6 +51,14 @@ CREATE TABLE IF NOT EXISTS positions (       -- a node's trail: a point each tim
     id INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT NOT NULL, ts REAL NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, alt REAL
 );
 CREATE INDEX IF NOT EXISTS positions_node ON positions (node_id, id);
+CREATE TABLE IF NOT EXISTS traceroutes (      -- every traceroute the operator asked for, with how it ended
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, node_id TEXT NOT NULL, hop_limit INTEGER,
+    status TEXT NOT NULL,                      -- ok | timeout | error
+    detail TEXT, latency_ms INTEGER, relays_towards INTEGER, relays_back INTEGER,
+    path_towards TEXT, path_back TEXT,         -- JSON lists of hops (num, id, name, snr, lat, lon): us to target, and target to us
+    raw TEXT                                   -- the reply as decoded, as JSON
+);
+CREATE INDEX IF NOT EXISTS traceroutes_ts ON traceroutes (ts);
 """
 
 
@@ -214,11 +223,50 @@ class MeshStore:
             return [[r["hour"], r["hops"], r["n"]] for r in self._db.execute(
                 "SELECT hour, hops, n FROM hops WHERE hour >= ? ORDER BY hour, hops", (since_hour,))]
 
+    # ---- traceroutes and link quality -----------------------------------------------------------------------------------
+    @staticmethod
+    def _trace(row) -> dict:
+        d = dict(row)
+        for k in ("path_towards", "path_back", "raw"):
+            d[k] = json.loads(d[k]) if d.get(k) else None
+        return d
+
+    def add_traceroute(self, **c) -> int:
+        cols = ["ts", "node_id", "hop_limit", "status", "detail", "latency_ms", "relays_towards", "relays_back", "path_towards", "path_back", "raw"]
+        vals = [json.dumps(c.get(k), default=str) if k in ("path_towards", "path_back", "raw") and c.get(k) is not None else c.get(k) for k in cols]
+        with self._lock:
+            cur = self._db.execute(f"INSERT INTO traceroutes ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", vals)
+            self._db.commit()
+            return cur.lastrowid
+
+    def traceroute(self, trace_id: int) -> dict | None:
+        with self._lock:
+            r = self._db.execute("SELECT * FROM traceroutes WHERE id=?", (trace_id,)).fetchone()
+        return self._trace(r) if r else None
+
+    def traceroutes(self, limit: int = 30, before: int | None = None) -> list[dict]:
+        """Newest first. `before` is a row id for paging."""
+        sql, args = "SELECT * FROM traceroutes", []
+        if before:
+            sql += " WHERE id < ?"
+            args.append(int(before))
+        with self._lock:
+            return [self._trace(r) for r in self._db.execute(sql + " ORDER BY id DESC LIMIT ?", [*args, max(1, min(int(limit), 200))])]
+
+    def links_summary(self, since_hour: int) -> list[dict]:
+        """Per node heard DIRECTLY since `since_hour`: packets, and the signal's average, worst and best."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT node_id, SUM(n) AS n, SUM(snr_sum) / SUM(n) AS snr_avg, MIN(snr_min) AS snr_min, MAX(snr_max) AS snr_max, "
+                "SUM(rssi_sum) / SUM(n) AS rssi_avg, MIN(rssi_min) AS rssi_min, MAX(rssi_max) AS rssi_max, MAX(hour) AS last_hour "
+                "FROM links WHERE hour >= ? GROUP BY node_id ORDER BY n DESC", (since_hour,)).fetchall()
+        return [dict(r) for r in rows]
+
     def counts(self) -> dict:
         """Rows and time span of each dataset, for the operator to see what is being kept."""
         out = {}
         with self._lock:
-            for table, col in (("nodes", "last_seen"), ("telemetry", "ts"), ("positions", "ts"), ("packets", "hour"), ("links", "hour"), ("hops", "hour")):
+            for table, col in (("nodes", "last_seen"), ("telemetry", "ts"), ("positions", "ts"), ("packets", "hour"), ("links", "hour"), ("hops", "hour"), ("traceroutes", "ts")):
                 r = self._db.execute(f"SELECT COUNT(*) AS n, MIN({col}) AS lo, MAX({col}) AS hi FROM {table}").fetchone()
                 out[table] = {"rows": r["n"], "first": r["lo"], "last": r["hi"]}
         return out
@@ -246,7 +294,7 @@ class MeshStore:
             d = {}
             for key, sql, arg in (("telemetry", "DELETE FROM telemetry WHERE ts < ?", cut), ("positions", "DELETE FROM positions WHERE ts < ?", trail_cut),
                                   ("packets", "DELETE FROM packets WHERE hour < ?", hour_cut), ("talkers", "DELETE FROM talkers WHERE hour < ?", hour_cut),
-                                  ("links", "DELETE FROM links WHERE hour < ?", hour_cut), ("hops", "DELETE FROM hops WHERE hour < ?", hour_cut),
+                                  ("links", "DELETE FROM links WHERE hour < ?", hour_cut), ("traceroutes", "DELETE FROM traceroutes WHERE ts < ?", cut), ("hops", "DELETE FROM hops WHERE hour < ?", hour_cut),
                                   ("nodes", "DELETE FROM nodes WHERE last_seen > 0 AND last_seen < ?", now - NODE_FORGET_S)):
                 d[key] = self._db.execute(sql, (arg,)).rowcount
             self._db.commit()

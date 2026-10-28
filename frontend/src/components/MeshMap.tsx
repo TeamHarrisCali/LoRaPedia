@@ -3,6 +3,13 @@ import { Button } from "./ui";
 
 export interface MapNode { id: string; label: string; short: string; lat: number; lon: number; tone: "fresh" | "day" | "old"; us: boolean; direct: boolean }
 export interface MapTrail { id: string; points: [number, number][] }
+/** A traceroute drawn on the map: hops in order (lat, lon, or null when that hop has no known position). `back` is dashed. */
+export interface MapRoute { id: string; hops: ({ lat: number; lon: number; label: string } | null)[]; back?: boolean }
+/** A direct link from this radio to a neighbour, coloured by signal quality and thicker the more it was heard. */
+export interface MapLink { id: string; from: [number, number]; to: [number, number]; snr: number; packets: number }
+
+/** Signal quality colour: good (teal) through marginal (amber) to poor (red). Never the only cue: the legend and the table say the numbers. */
+export const snrColor = (snr: number) => snr >= 5 ? "#2dd4bf" : snr >= 0 ? "#9bd65f" : snr >= -5 ? "#ffb020" : snr >= -10 ? "#ff8a3d" : "#f2545b";
 
 const TONE = { fresh: "var(--teal)", day: "var(--amber)", old: "var(--muted)" } as const;
 const mx = (lon: number) => (lon + 180) / 360;
@@ -25,8 +32,9 @@ function fitView(nodes: MapNode[], w: number, h: number): View {
 
 /** A plain offline map: nodes on a latitude/longitude grid (Web Mercator) with a scale bar, pan, zoom and optional movement trails.
  *  There is no background picture on purpose: LoRaPedia works without internet, and a background would have to be fetched from one. */
-export function MeshMap({ nodes, trails, selected, onSelect, formatDistance }: {
-  nodes: MapNode[]; trails: MapTrail[]; selected: string | null; onSelect: (id: string | null) => void; formatDistance: (km: number) => string;
+export function MeshMap({ nodes, trails, routes = [], links = [], selected, onSelect, formatDistance, fitTo }: {
+  nodes: MapNode[]; trails: MapTrail[]; routes?: MapRoute[]; links?: MapLink[]; selected: string | null; onSelect: (id: string | null) => void;
+  formatDistance: (km: number) => string; fitTo?: MapNode[];
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 640, h: 420 });
@@ -41,7 +49,7 @@ export function MeshMap({ nodes, trails, selected, onSelect, formatDistance }: {
     return () => ro.disconnect();
   }, []);
 
-  const fitted = useMemo(() => fitView(nodes, size.w, size.h), [nodes, size.w, size.h]);
+  const fitted = useMemo(() => fitView(fitTo ?? nodes, size.w, size.h), [fitTo, nodes, size.w, size.h]);
   const v = view ?? fitted;
   const px = (lon: number) => (mx(lon) - v.x) * 256 * 2 ** v.z + size.w / 2;
   const py = (lat: number) => (my(lat) - v.y) * 256 * 2 ** v.z + size.h / 2;
@@ -111,6 +119,23 @@ export function MeshMap({ nodes, trails, selected, onSelect, formatDistance }: {
           <polyline key={t.id} fill="none" stroke="var(--amber)" strokeOpacity={0.55} strokeWidth="2" strokeLinejoin="round" strokeDasharray="5 4"
             points={t.points.map(([lat, lon]) => `${px(lon).toFixed(1)},${py(lat).toFixed(1)}`).join(" ")} />
         ))}
+        {links.map((l) => <line key={l.id} x1={px(l.from[1])} y1={py(l.from[0])} x2={px(l.to[1])} y2={py(l.to[0])} stroke={snrColor(l.snr)} strokeOpacity={0.85} strokeWidth={1.5 + Math.min(4, Math.log2(Math.max(1, l.packets)) / 2)} strokeLinecap="round"><title>{`${l.id}: signal ${l.snr.toFixed(1)} dB, heard ${l.packets} times`}</title></line>)}
+        {routes.map((r) => {
+          const segs: string[] = [], gaps: string[] = [];
+          let prev: { lat: number; lon: number } | null = null, hole = false;
+          for (const h of r.hops) {
+            if (h === null) { hole = true; continue; }
+            if (prev) (hole ? gaps : segs).push(`M${px(prev.lon).toFixed(1)},${py(prev.lat).toFixed(1)} L${px(h.lon).toFixed(1)},${py(h.lat).toFixed(1)}`);
+            prev = h; hole = false;
+          }
+          return (
+            <g key={r.id}>
+              <path d={segs.join(" ")} fill="none" stroke={r.back ? "var(--teal)" : "var(--amber)"} strokeWidth="3.5" strokeLinecap="round" strokeDasharray={r.back ? "8 5" : undefined} strokeOpacity={0.9} />
+              <path d={gaps.join(" ")} fill="none" stroke={r.back ? "var(--teal)" : "var(--amber)"} strokeWidth="2" strokeDasharray="2 6" strokeLinecap="round" strokeOpacity={0.7} />
+              {!r.back && r.hops.map((h, i) => h && <g key={i}><circle cx={px(h.lon)} cy={py(h.lat)} r="9" fill="var(--bg)" stroke="var(--amber)" strokeWidth="2" /><text x={px(h.lon)} y={py(h.lat) + 4} fontSize="11" textAnchor="middle" fill="var(--ink)">{i}</text><title>{h.label}</title></g>)}
+            </g>
+          );
+        })}
         {nodes.map((n) => {
           const x = px(n.lon), y = py(n.lat);
           if (x < -20 || y < -20 || x > size.w + 20 || y > size.h + 20) return null;

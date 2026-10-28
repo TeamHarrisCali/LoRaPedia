@@ -17,6 +17,8 @@ const NAV = [
   { to: "/radio", label: "Radio", icon: "radio" },
   { to: "/nodes", label: "Nodes", icon: "nodes" },
   { to: "/map", label: "Map", icon: "map" },
+  { to: "/traceroute", label: "Traceroute", icon: "route" },
+  { to: "/links", label: "Link quality", icon: "radio" },
   { to: "/telemetry", label: "Telemetry", icon: "chart" },
   { to: "/trends", label: "Trends", icon: "feed" },
   { to: "/settings", label: "Settings", icon: "settings" },
