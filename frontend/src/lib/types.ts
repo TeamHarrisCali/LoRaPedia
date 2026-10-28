@@ -19,6 +19,8 @@ export interface Settings {
   operator_chat_minutes: number;
   operator_public_post: boolean;
   operator_radio_config: boolean;
+  daily_limit_default: number;
+  node_daily_limits: Record<string, number>;
   memory_hours: number;
   mesh_retention_days: number;
   update_channel: "stable" | "beta";
@@ -246,3 +248,9 @@ export interface RcBackup { id: number; ts: number; reason: string; radio: strin
 export interface RcView { connected: boolean; writable: boolean; sections: RcSection[]; backups: RcBackup[]; radio: string | null; excluded: { name: string; why: string }[]; error?: string }
 export interface RcChange { section: string; field: string; label: string; old: RcValue; new: RcValue; risk: string | null }
 export interface RcSaved { changed: RcChange[]; message: string; restarting?: boolean }
+
+export interface LimitNode {
+  id: string; name: string; last_heard: number | null; asked_today: number; asked_total: number; last_asked: number | null;
+  custom_cap: number | null; cap: number; blocked: boolean; allowed: boolean;
+}
+export interface LimitsData { default_cap: number; allowlist_active: boolean; nodes: LimitNode[] }

@@ -8,6 +8,7 @@ import { Knowledge } from "./pages/Knowledge";
 import { LiveFeed } from "./pages/LiveFeed";
 import { Messages } from "./pages/Messages";
 import { Model } from "./pages/Model";
+import { Limits } from "./pages/Limits";
 import { Links } from "./pages/Links";
 import { MapPage } from "./pages/MapPage";
 import { Nodes } from "./pages/Nodes";
@@ -33,6 +34,7 @@ export default function App() {
                 <Route path="model" element={<Model />} />
                 <Route path="radio" element={<Radio />} />
                 <Route path="radio/settings" element={<RadioSettings />} />
+                <Route path="limits" element={<Limits />} />
                 <Route path="messages" element={<Messages />} />
                 <Route path="messages/:id" element={<Messages />} />
                 <Route path="nodes" element={<Nodes />} />

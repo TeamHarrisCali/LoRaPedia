@@ -1,9 +1,10 @@
 """User-editable settings. Everything here is editable from the UI, not just env vars."""
 
 import os
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Where Ollama lives on first run. docker-compose sets this to http://ollama:11434. Once settings are saved
 # (from the UI) the saved values win.
@@ -28,6 +29,10 @@ class Settings(BaseModel):
     hop_limit: int = Field(3, ge=1, le=7)
     allowlist: list[str] = []  # empty = everyone allowed
     blocklist: list[str] = []
+    # Per-node limits (the Limits page): how many questions one node may ask per day, on top of the rate limit. Commands such as ?ping and
+    # ?stats do not count. 0 = no limit. A node can have its own number (0 = no limit for that node) in node_daily_limits.
+    daily_limit_default: int = Field(0, ge=0, le=1000)
+    node_daily_limits: dict[str, int] = {}
 
     # Byte budget / multi-part
     byte_limit: int = Field(200, ge=50, le=233)
@@ -92,6 +97,20 @@ class Settings(BaseModel):
     temperature: float = Field(0.2, ge=0, le=2)
     max_tokens: int = Field(160, ge=16, le=1024)
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
+
+    @field_validator("node_daily_limits")
+    @classmethod
+    def _node_limits(cls, limits: dict[str, int]) -> dict[str, int]:
+        for node, cap in limits.items():
+            if not re.fullmatch(r"![0-9a-f]{8}", node):
+                raise ValueError(f"'{node[:20]}' is not a node id (like !a1b2c3d4).")
+            if not 0 <= cap <= 1000:
+                raise ValueError("A daily limit must be between 0 and 1000.")
+        return limits
+
+    def daily_cap(self, node_id: str) -> int:
+        """The most questions this node may ask today (0 = no limit): its own number if it has one, else the default."""
+        return self.node_daily_limits.get(node_id, self.daily_limit_default)
 
     @property
     def effective_max_parts(self) -> int:

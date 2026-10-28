@@ -1,43 +1,27 @@
-import { useMemo, useState } from "react";
-import { Pager } from "../components/Pager";
-import { usePaged } from "../lib/usePaged";
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Bubble } from "../components/Bubble";
 import { ByteMeter } from "../components/ByteMeter";
 import { SaveBar } from "../components/SaveBar";
-import { SignalGlyph } from "../components/SignalGlyph";
-import { Badge, Card, Dot, EmptyState, Field, PageHeader, SectionTitle, Toggle } from "../components/ui";
-import { api, errorText } from "../lib/api";
-import { timeAgo, utf8Bytes } from "../lib/format";
+import { Card, Dot, Field, PageHeader, SectionTitle, Toggle } from "../components/ui";
+import { api } from "../lib/api";
+import { utf8Bytes } from "../lib/format";
 import { useLive } from "../lib/live";
-import { useDraft, useSettings } from "../lib/settings";
-import { useToast } from "../lib/toast";
-import type { RadioNode, RadioStatus } from "../lib/types";
+import { useDraft } from "../lib/settings";
+import type { RadioStatus } from "../lib/types";
 import { usePoll } from "../lib/usePoll";
 import { RadioConnect } from "../components/RadioConnect";
 
 const SAMPLE = "Photosynthesis converts light, water and carbon dioxide into sugar and oxygen. [wp:Photosynthesis]";
 
 export function Radio() {
-  const toast = useToast();
-  const { reload } = useSettings();
   const { draft, set, dirty, save, discard } = useDraft();
   const live = useLive();
   const status = usePoll(() => api.get<RadioStatus>("/api/radio/status"), 4000);
-  const nodes = usePoll(() => api.get<RadioNode[]>("/api/radio/nodes"), 8000);
   const st = live.radio ?? status.data;
   const [prefixText, setPrefixText] = useState<string | null>(null);
-  const [nodeQuery, setNodeQuery] = useState("");
-  const foundNodes = useMemo(() => {
-    const words = nodeQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return (nodes.data ?? []).filter((n) => words.every((w) => `${n.short} ${n.long} ${n.id}`.toLowerCase().includes(w)));
-  }, [nodes.data, nodeQuery]);
-  const nodePage = usePaged(foundNodes, 12, nodeQuery);
   if (!draft) return <p className="text-muted" role="status">Loading…</p>;
 
-  async function toggleNode(n: RadioNode, which: "block" | "allow", on: boolean) {
-    try { await api.post(`/api/radio/nodes/${encodeURIComponent(n.id)}/${which}`, { on }); await reload(); await nodes.reload(); }
-    catch (e) { toast.error(errorText(e)); }
-  }
   const prefixes = prefixText ?? draft.trigger_prefixes.join(", ");
   const sampleBytes = utf8Bytes(SAMPLE);
   const usable = (n: number) => n - 6; // room left per part once "(2/3) " is added
@@ -48,7 +32,7 @@ export function Radio() {
 
       <Card className="mb-5">
         <SectionTitle hint="Plug the radio in over USB and leave this on Auto. Or choose another connection.">Connection</SectionTitle>
-        <RadioConnect status={st} onChanged={() => { void status.reload(); void nodes.reload(); }} />
+        <RadioConnect status={st} onChanged={() => { void status.reload(); }} />
       </Card>
 
       <Card className="mb-5">
@@ -95,42 +79,13 @@ export function Radio() {
       </Card>
 
       <Card className="mb-5">
-        <SectionTitle hint="Nodes this radio has heard. Block a node to ignore it. If anything is on the allow list, only allowed nodes are answered.">Nodes</SectionTitle>
-        {!nodes.data || nodes.data.length === 0 ? (
-          <EmptyState title="No nodes yet">{st?.active === "simulator" ? "Nodes appear once a real radio is connected." : "Nodes show up as the radio hears them."}</EmptyState>
-        ) : (
-          <>
-          <div className="mb-3 flex flex-wrap items-center gap-3">
-            <input aria-label="Search nodes" type="search" className="field max-w-xs" placeholder="Search name or id…" value={nodeQuery} onChange={(e) => setNodeQuery(e.target.value)} />
-            <span className="text-sm text-muted">{foundNodes.length} of {nodes.data.length}</span>
-          </div>
-          {foundNodes.length === 0 && <p className="text-sm text-muted">No node matches.</p>}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <caption className="sr-only">Nodes heard by this radio</caption>
-              <thead className="text-xs uppercase tracking-wide text-muted"><tr>
-                <th className="py-2 pr-3 font-medium">Node</th><th className="pr-3 font-medium">ID</th><th className="pr-3 font-medium">Heard</th><th className="pr-3 font-medium">Hops</th><th className="pr-3 font-medium">Block</th><th className="font-medium">Allow</th>
-              </tr></thead>
-              <tbody>
-                {nodePage.slice.map((n) => (
-                  <tr key={n.id} className="border-t border-line">
-                    <td className="py-2 pr-3"><span className="flex items-center gap-2"><SignalGlyph snr={n.snr} /><span><span className="font-semibold">{n.short}</span>{n.is_self && <> <Badge tone="teal">this node</Badge></>}<span className="block text-xs text-muted">{n.long}</span></span></span></td>
-                    <td className="pr-3 font-mono text-xs">{n.id}</td>
-                    <td className="pr-3 text-muted">{timeAgo(n.last_heard)}</td>
-                    <td className="pr-3 font-mono">{n.hops_away ?? "–"}</td>
-                    <td className="pr-3"><input type="checkbox" role="switch" aria-label={`Block ${n.short}`} disabled={n.is_self} checked={n.blocked} onChange={(e) => toggleNode(n, "block", e.target.checked)} className="h-5 w-5" /></td>
-                    <td><input type="checkbox" role="switch" aria-label={`Allow ${n.short}`} disabled={n.is_self} checked={n.allowed} onChange={(e) => toggleNode(n, "allow", e.target.checked)} className="h-5 w-5" /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pager page={nodePage.page} pages={nodePage.pages} total={nodePage.total} size={nodePage.size} onPage={nodePage.setPage} noun="nodes" />
-          </>
-        )}
-        {(draft.blocklist.length > 0 || draft.allowlist.length > 0) && (
-          <p className="mt-3 text-sm text-muted"><Dot tone="amber" label="Active" className="mr-2" />Blocked: <span className="font-mono">{draft.blocklist.join(", ") || "none"}</span> · Allowed: <span className="font-mono">{draft.allowlist.join(", ") || "everyone"}</span></p>
-        )}
+        <SectionTitle hint="Who may ask, and how much, is on its own page now.">Blocking, allowing and daily limits</SectionTitle>
+        <p className="text-sm">
+          {draft.blocklist.length > 0 || draft.allowlist.length > 0
+            ? <><Dot tone="amber" label="Active" className="mr-2" />{draft.blocklist.length} blocked · {draft.allowlist.length > 0 ? `${draft.allowlist.length} allowed (only these are answered)` : "everyone allowed"}. </>
+            : "Everyone may ask. "}
+          Block or allow a node, and set how many questions each node may ask per day, on the <Link className="underline" to="/limits">Limits page</Link>.
+        </p>
       </Card>
       <SaveBar dirty={dirty} onSave={() => void save()} onDiscard={() => { discard(); setPrefixText(null); }} />
     </>

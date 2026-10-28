@@ -207,6 +207,14 @@ it, but the node itself has not confirmed), **Sent, waiting**, **Not confirmed**
 because the confirmation can be lost) or **Failed** with the reason the mesh gave (for example "no route to the node"). An answer in
 several parts is delivered only when every part was. The simulator sends nothing over the air, so it shows no delivery report.
 
+**Per-node limits** *(beta)*. The rate limit only spaces a node's questions out; the *Limits* page also gives each node a **daily
+allowance** (*Questions per node per day*, 0 = no limit, with a number of its own for any node). A node that reaches it is told once
+("Daily limit reached (N questions). Try again tomorrow.") and ignored until this computer's midnight, so a chatty node cannot spend all the
+model's time or the mesh's airtime. Commands (`?ping`, `?stats`, `?help`, `?reset`) never count; a question counts when it is accepted, even
+one held for its turn or one whose answer failed; a question turned away as "busy" does not. The count is read back from the question log
+after a restart. Blocking and allowing nodes moved here from the Radio page: a blocked node is ignored entirely, and if anything is allowed,
+only allowed nodes are answered.
+
 **Finding things in long lists** *(beta)*. Long lists are shown a page at a time (Nodes, Live Feed, readings, traceroute history, link
 quality, the node lists), the Settings and Radio settings pages are split into tabs, and wherever you choose a node you type part of its
 name or id instead of scrolling a drop-down.
@@ -272,7 +280,7 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 
 | Page | You can change |
 |---|---|
-| **Radio** | Connection (USB / network / Bluetooth / simulator), trigger prefixes, hop limit, **byte limit (50 to 233)**, multi-part and its cap, pause between sends, node block/allow lists |
+| **Radio** | Connection (USB / network / Bluetooth / simulator), trigger prefixes, hop limit, **byte limit (50 to 233)**, multi-part and its cap, pause between sends |
 | **Model** | Language and embedding model (install with progress), temperature, max tokens, passages retrieved, system prompt (with *Reset to default*), a "try it" box showing the byte count |
 | **Knowledge** | Wikipedia files, downloads, indexing, a search playground |
 | **Map** *(beta)* | Every node with a known position on a plain offline grid with a scale bar: pan, zoom, search, filter by how recently it was heard, optional movement trails, and a card with distance from this radio. There is no background map picture, on purpose: LoRaPedia works without the internet |
@@ -280,6 +288,7 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 | **Link quality** *(beta)* | How well your radio hears the nodes that reach it directly: signal against distance with the decode limit marked, and a table. Also available as an overlay on the Map |
 | **Telemetry** *(beta)* | What nodes broadcast: sensor averages around you (each node counted once), battery, voltage, channel use, temperature, humidity and pressure over time for the nodes you pick, a table of recent readings, and a CSV export |
 | **Trends** *(beta)* | When the mesh is busiest (by hour of the day), a heat map of the last week, and how far packets travel (directly, or through how many relays). Counts only |
+| **Limits** *(beta)* | Who may ask and how much: a **daily limit** of questions per node (and a number of its own for any node, 0 = no limit for it), **block** a node, or **allow** only chosen nodes. Shows each node's questions today against its limit, in tabs (everyone, asked today, blocked, allowed, own limit) with a search box |
 | **Radio settings** *(beta)* | What is stored on the radio itself: region, role, LoRa preset, hop limit, power, position and telemetry intervals, and more, in tabs, with a search box to find a setting. Looking is always allowed; **changing is off until you turn it on in Settings**, then every change is checked, shown with what could go wrong, confirmed, written in one transaction, and preceded by a saved copy you can restore. Also the radio's name and a **fixed position** (a radio with no GPS has no position, so the Map cannot place it and distances cannot be worked out). Wi-Fi passwords, keys and MQTT credentials are never shown, copied or written |
 | **Messages** *(beta)* | Write to a node yourself: a direct message to one node, with a report of whether it arrived. After you write to a node, what it sends back (unless it starts with `?` or `!wiki`) comes to this page for a while instead of being answered by the AI. Also, **off by default**, a post to a public channel that you type and confirm yourself |
 | **Nodes** *(beta)* | Every node the radio has heard: names, hardware, hops, signal, battery, sensors, last position, and a history of each. Search and filter, and add your own label and note to any node |

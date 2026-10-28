@@ -5,6 +5,22 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.2.0-beta.10] - 2026-10-28
+
+A test version for the beta channel: the MeshtasticLLM merge, phase 7. **This completes the merge.**
+
+### Added (beta: the MeshtasticLLM merge, phase 7: per-node limits)
+- **Limits page.** A **daily limit** of questions per node (Questions per node per day; 0 = none), with a number of its own for any node.
+  A node that reaches its limit is told once ("Daily limit reached (N questions). Try again tomorrow.") and ignored until midnight. Commands
+  never count; a question counts when it is accepted (even one held for its turn or one whose answer fails); one turned away as "busy" does
+  not; the count survives a restart (it is read back from the question log). The page lists everyone the radio has heard or who has asked,
+  with today's questions against the limit, in tabs (everyone, asked today, blocked, allowed, own limit), a search box and pages.
+  Block / allow moved here from the Radio page, and a node you have not heard can be added by its id.
+
+### Fixed
+- Tests only: the checks that radios are closed after each test now track the exact radios a test creates (the earlier version failed on
+  Python 3.11).
+
 ## [0.2.0-beta.9] - 2026-10-28
 
 A test version for the beta channel: the MeshtasticLLM merge, phase 6, and easier-to-use lists.

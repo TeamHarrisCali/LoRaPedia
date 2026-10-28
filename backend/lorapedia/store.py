@@ -301,6 +301,24 @@ class Store:
             d["sources"] = "; ".join(json.loads(d["sources"]))
             yield d
 
+    def question_counts(self, since: float | None = None) -> dict[str, int]:
+        """Questions logged per sender since `since` (all time when None). What the daily limit counts."""
+        sql, args = "SELECT sender_id, COUNT(*) AS n FROM queries", []
+        if since is not None:
+            sql += " WHERE ts >= ?"
+            args.append(since)
+        with self._lock:
+            return {r["sender_id"]: r["n"] for r in self._db.execute(sql + " GROUP BY sender_id", args)}
+
+    def sender_stats(self, since: float) -> list[dict]:
+        """Everyone who has asked a question: how many today (since `since`) and in all, when last, and the name they last used."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT sender_id, COUNT(*) AS total, SUM(ts >= ?) AS today, MAX(ts) AS last_ts FROM queries GROUP BY sender_id", (since,)).fetchall()
+            names = {r["sender_id"]: r["sender_name"] for r in self._db.execute(
+                "SELECT sender_id, sender_name FROM queries WHERE id IN (SELECT MAX(id) FROM queries GROUP BY sender_id)")}
+        return [{"sender_id": r["sender_id"], "name": names.get(r["sender_id"]), "total": r["total"], "today": r["today"] or 0, "last_ts": r["last_ts"]} for r in rows]
+
     def today_stats(self) -> dict:
         midnight = time.mktime(time.localtime()[:3] + (0, 0, 0, 0, 0, -1))
         with self._lock:

@@ -357,6 +357,24 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
             raise HTTPException(503, f"Bluetooth scan failed ({exc.__class__.__name__}). Is Bluetooth on?") from exc
         return [{"name": d.name, "address": d.address} for d in found if d.name]
 
+    @app.get("/api/limits")
+    async def limits():
+        """Who has asked (and may ask) how much: everyone known to the mesh or the question log, with today's count and their limit."""
+        s, now = settings(), time.time()
+        t = time.localtime(now)
+        stats = {r["sender_id"]: r for r in store.sender_stats(time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1)))}
+        known = {r["id"]: r for r in mesh.rows() if not r["us"]}
+        accepted = engine.quota_today()  # includes questions accepted but not (yet) logged, such as one still being answered
+        ids = set(known) | set(accepted) | set(stats) | set(s.allowlist) | set(s.blocklist) | set(s.node_daily_limits)
+        rows = []
+        for node in ids:
+            m, q = known.get(node), stats.get(node)
+            rows.append({"id": node, "name": (m and m["display"]) or (q and q["name"]) or node, "last_heard": m["last_heard"] if m else None,
+                         "asked_today": max(q["today"] if q else 0, accepted.get(node, 0)), "asked_total": q["total"] if q else 0, "last_asked": q["last_ts"] if q else None,
+                         "custom_cap": s.node_daily_limits.get(node), "cap": s.daily_cap(node), "blocked": node in s.blocklist, "allowed": node in s.allowlist})
+        rows.sort(key=lambda r: (-(r["asked_today"]), -(r["last_asked"] or 0), -(r["last_heard"] or 0), r["name"].lower()))
+        return {"default_cap": s.daily_limit_default, "allowlist_active": bool(s.allowlist), "nodes": rows}
+
     @app.get("/api/radio/channels")
     async def radio_channels():
         return radio.channels()

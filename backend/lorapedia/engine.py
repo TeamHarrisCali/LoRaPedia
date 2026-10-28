@@ -73,6 +73,7 @@ class Engine:
         library_state: Callable[[], str] = lambda: "none",
         mesh_ask: MeshAsker | None = None,
         operator: Callable[[Packet, Settings], Awaitable[bool]] | None = None,
+        wall: Callable[[], float] = time.time,
     ) -> None:
         # "complete"/"covered": every article is searchable, so "no match" is definitive. "partial": still indexing.
         self._library_state = library_state
@@ -89,6 +90,12 @@ class Engine:
         # Hands a message that belongs to one of the operator's chats to the Messages page (True = it was taken). All the engine ever gets
         # of operator messaging: a way to step aside, never a way to send.
         self._operator = operator
+        # The daily limit: questions each node has asked today. Loaded from the question log the first time a node is seen each day, so a
+        # restart does not hand everyone a fresh allowance.
+        self._wall = wall
+        self._quota_day = ""
+        self._quota: dict[str, int] = {}
+        self._notified: set[str] = set()  # told today that the limit is reached (told once: more would cost airtime too)
         self.memory = ConversationMemory(clock)  # each sender's last few answered questions, for follow-ups; RAM only
 
     # ---- intake -------------------------------------------------------------------------
@@ -118,11 +125,18 @@ class Engine:
         if self._operator is not None and await self._operator(packet, s):
             return "operator"  # part of a chat the operator started: for them, not for the AI
 
+        node = packet.sender_id
+        cap = s.daily_cap(node)
+        if cap > 0 and self._asked_today(node) >= cap:
+            if node not in self._notified:
+                self._notified.add(node)
+                self.queue.put_nowait(Job(packet, reply=f"Daily limit reached ({cap} questions). Try again tomorrow."))
+            return "daily_limit"
+
         if self.pending_count >= s.queue_max:
             self.queue.put_nowait(Job(packet, reply="Busy, try again later."))
             return "queue_full"
 
-        node = packet.sender_id
         if s.queue_when_limited and s.rate_limit_queries > 0:
             waiting = self.limiter.pending(node)
             if waiting >= s.max_queued_per_node:  # a cap keeps one node from filling the whole queue
@@ -136,6 +150,7 @@ class Engine:
                 task.add_done_callback(self._delayed.discard)
                 if s.ack_queued:
                     self.queue.put_nowait(Job(packet, reply=f"Queued. Answer in about {wait}s."))
+                self._quota[node] = self._asked_today(node) + 1
                 return "delayed"
         else:
             wait = self.limiter.check(node, s.rate_limit_queries, s.rate_limit_window_s)
@@ -143,7 +158,29 @@ class Engine:
                 self.queue.put_nowait(Job(packet, reply=f"Busy, try again in {wait}s."))
                 return "rate_limited"
         self.queue.put_nowait(Job(packet, question=parsed.text))
+        self._quota[node] = self._asked_today(node) + 1
         return "queued"
+
+    def _midnight(self) -> float:
+        t = time.localtime(self._wall())
+        return time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1))
+
+    def _roll_day(self) -> None:
+        day = time.strftime("%Y-%m-%d", time.localtime(self._wall()))
+        if day != self._quota_day:
+            self._quota_day, self._quota, self._notified = day, {}, set()
+
+    def quota_today(self) -> dict[str, int]:
+        """Questions accepted today per node, for the nodes seen since this started (a question that failed is counted here but never logged)."""
+        self._roll_day()
+        return dict(self._quota)
+
+    def _asked_today(self, node: str) -> int:
+        """Questions this node has had accepted today (this computer's local day)."""
+        self._roll_day()
+        if node not in self._quota:
+            self._quota[node] = self.store.question_counts(self._midnight()).get(node, 0)
+        return self._quota[node]
 
     async def _release(self, job: Job, wait: float) -> None:
         """Hold a question until its node's cooldown is over, then let it join the queue."""

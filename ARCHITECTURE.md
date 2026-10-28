@@ -77,6 +77,7 @@ not be indexed yet.
 | `meshask.py` | Questions about the mesh itself: a rule-based router and a fixed menu of read-only lookups over `mesh.db`. No model, no transmitting; replies use only a node's own name, never your label. |
 | `radio/config.py` | The Radio settings page: the radio's own configuration (allow-listed sections, validated against its protobuf definitions, a saved copy before every write, one settings transaction, rollback), its name and fixed position. Writes are off until switched on in Settings; only the web API calls it. |
 | `messaging.py` | What the operator types: a direct message to one node, a chat window (what the node says back is kept for the operator, not answered), and an opt-in public post. The only caller of `post_public`; the engine gets only a callback to step aside. |
+| (engine) daily limit | `Engine.submit` counts the questions each node has had accepted today (loaded from the question log the first time a node is seen each day) and turns a node away at its cap (`Settings.daily_cap`), telling it once. Commands, chat replies and "busy" rejections do not count. |
 | `memory.py` | Each sender's last few answered questions for follow-ups. RAM only, per sender, expires after idle time. |
 | `ratelimit.py` | Per-node sliding window. Takes an injectable clock. |
 | `radio/manager.py` | Chooses the real radio or the simulator, reconnects with backoff, forwards received packets. |
