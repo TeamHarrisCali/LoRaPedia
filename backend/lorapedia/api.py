@@ -26,6 +26,8 @@ from .index import Index, Indexer
 from .llm.base import MockLLM
 from .mesh import sim as mesh_sim
 from .mesh.service import MeshService
+from .mesh.observe import csv_cell
+from .mesh.store import METRICS as MESH_METRICS
 from .mesh.store import MeshStore, NODE_ID_RE, NoteError
 from .llm.openai_compat import OpenAICompatLLM
 from .radio.base import Packet
@@ -237,6 +239,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     app = FastAPI(title="LoRaPedia", lifespan=lifespan)
     app.state.engine, app.state.index, app.state.indexer, app.state.radio, app.state.updates = engine, index, indexer, radio, updates
     app.state.wiki_updates = wiki_updates
+    app.state.mesh, app.state.mesh_store = mesh, mesh_store
 
     # ---- status / settings --------------------------------------------------------------
 
@@ -497,9 +500,10 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
             yield buf.getvalue()
             for r in store.export_rows():
                 buf.seek(0), buf.truncate()
-                w.writerow([_time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(r["ts"])), r["sender_id"],
+                # Questions and names come from strangers: text that starts with = + - @ would run as a formula in a spreadsheet.
+                w.writerow([csv_cell(c) for c in [_time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(r["ts"])), r["sender_id"],
                             r["sender_name"], r["question"], r["answer"].replace("\n", " | "), r["bytes"],
-                            r["byte_limit"], r["parts"], r["latency_s"], r["sources"]])
+                            r["byte_limit"], r["parts"], r["latency_s"], r["sources"]]])
                 yield buf.getvalue()
         return StreamingResponse(rows(), media_type="text/csv",
                                  headers={"Content-Disposition": 'attachment; filename="lorapedia-log.csv"'})
@@ -548,6 +552,91 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         path = data / "mesh.db"
         return {"recording": mesh.recording, "retention_days": settings().mesh_retention_days, "datasets": await asyncio.to_thread(mesh_store.counts),
                 "size": path.stat().st_size if path.exists() else 0}
+
+    # ---- the pages built on the history: map trails, telemetry, trends -------------------------------
+
+    def clamp(value, low, high):
+        return max(low, min(value, high))
+
+    @app.get("/api/mesh/trails")
+    async def mesh_trails(days: int = 7, max_points: int = 150):
+        """Where nodes have been: {node: [[lat, lon, ts], ...]}, at most max_points each, nodes that have not moved left out."""
+        since = mesh._clock() - clamp(days, 1, 90) * 86400
+        return {"days": clamp(days, 1, 90), "trails": await asyncio.to_thread(mesh_store.trails, since, clamp(max_points, 10, 500))}
+
+    @app.get("/api/mesh/telemetry/series")
+    async def mesh_series(metric: str = "battery", nodes: str = "", hours: int = 72, max_points: int = 300):
+        """One metric over time for the given nodes (comma separated ids), or for the eight that reported it most recently."""
+        if metric not in MESH_METRICS:
+            raise HTTPException(400, f"Unknown metric. Choose one of: {', '.join(MESH_METRICS)}.")
+        ids = [n for n in nodes.split(",") if n]
+        if len(ids) > 12 or not all(NODE_ID_RE.match(n) for n in ids):
+            raise HTTPException(400, "Give up to 12 node ids like !a1b2c3d4, separated by commas.")
+        since = mesh._clock() - clamp(hours, 1, 24 * 90) * 3600
+        series = await asyncio.to_thread(mesh_store.series, metric, since, ids or None, clamp(max_points, 10, 1000))
+        if not ids and len(series) > 8:  # no nodes asked for: the eight that spoke most recently
+            keep = sorted(series, key=lambda n: series[n][-1][0], reverse=True)[:8]
+            series = {n: series[n] for n in keep}
+        return {"metric": metric, "hours": clamp(hours, 1, 24 * 90), "series": series}
+
+    @app.get("/api/mesh/telemetry/readings")
+    async def mesh_readings(hours: int = 24, limit: int = 200, node: str = ""):
+        if node and not NODE_ID_RE.match(node):
+            raise HTTPException(404, "That is not a node id.")
+        since = mesh._clock() - clamp(hours, 1, 24 * 90) * 3600
+        return {"readings": await asyncio.to_thread(mesh_store.readings, since, clamp(limit, 1, 1000), node or None)}
+
+    @app.get("/api/mesh/telemetry/export.csv")
+    async def mesh_telemetry_csv(days: int = 30):
+        import csv
+        import io
+        import time as _time
+        since = mesh._clock() - clamp(days, 1, 365) * 86400
+        data = await asyncio.to_thread(mesh_store.readings, since, 200000)
+
+        def rows():
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(["time", "node_id", "node_name", "kind", *MESH_METRICS, "snr_db", "rssi_dbm", "relays"])
+            yield buf.getvalue()
+            for r in reversed(data):  # oldest first
+                buf.seek(0), buf.truncate()
+                w.writerow([csv_cell(c) for c in [_time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(r["ts"])), r["node_id"],
+                                                  r["node_label"] or r["node_name"] or r["node_short"] or "", r["kind"],
+                                                  *[r[m] for m in MESH_METRICS], r["snr"], r["rssi"], r["hops"]]])
+                yield buf.getvalue()
+        return StreamingResponse(rows(), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="lorapedia-telemetry.csv"'})
+
+    @app.get("/api/mesh/sensors")
+    async def mesh_sensors(hours: float = 1):
+        """What the sensor nodes around you report: the average of each node's own average (a chatty node does not outweigh a quiet one)."""
+        window = clamp(hours, 0.25, 24 * 7)
+        per_node = await asyncio.to_thread(mesh_store.sensor_averages, mesh._clock() - window * 3600)
+        avg = {}
+        for key in ("temperature", "humidity", "pressure"):
+            vals = [n[key] for n in per_node if n[key] is not None]
+            avg[key] = round(sum(vals) / len(vals), 1) if vals else None
+        return {"hours": window, "average": avg,
+                "nodes": [{"id": n["node_id"], "name": n["label"] or n["name"] or n["short"] or n["node_id"], "readings": n["n"], "last": n["last"],
+                           "temperature": n["temperature"], "humidity": n["humidity"], "pressure": n["pressure"]} for n in per_node]}
+
+    @app.get("/api/mesh/trends/packets")
+    async def mesh_trend_packets(days: int = 14, kind: str = ""):
+        """Packets heard per hour (counts only), for the busiest-hours chart and the heat map. Hours are UTC hours since 1970."""
+        since = int((mesh._clock() - clamp(days, 1, 30) * 86400) // 3600)
+        return {"days": clamp(days, 1, 30), "hours": await asyncio.to_thread(mesh_store.packet_hours, since, kind[:40] or None),
+                "kinds": await asyncio.to_thread(mesh_store.packet_kinds, since)}
+
+    @app.get("/api/mesh/trends/hops")
+    async def mesh_trend_hops(days: int = 7):
+        """How many relays the packets we heard had passed through, per hour, with the headline numbers."""
+        since = int((mesh._clock() - clamp(days, 1, 30) * 86400) // 3600)
+        hours = await asyncio.to_thread(mesh_store.hop_hours, since)
+        total = sum(n for _, _, n in hours)
+        return {"days": clamp(days, 1, 30), "hours": hours,
+                "summary": {"packets": total, "average_relays": round(sum(h * n for _, h, n in hours) / total, 2) if total else None,
+                            "share_direct": round(sum(n for _, h, n in hours if h == 0) / total, 3) if total else None,
+                            "furthest": max((h for _, h, n in hours), default=None)}}
 
     @app.post("/api/mesh/demo")
     async def mesh_demo():

@@ -12,6 +12,8 @@ export interface Settings {
   send_delay_s: number;
   ai_fallback: boolean;
   auto_backup: boolean;
+  temperature_unit: "C" | "F";
+  distance_unit: "km" | "mi";
   mesh_record: boolean;
   mesh_retention_days: number;
   update_channel: "stable" | "beta";
@@ -58,6 +60,18 @@ export interface MeshNodes { nodes: MeshNode[]; summary: MeshSummary; recording:
 export interface TelemetryRow { ts: number; kind: string; battery: number | null; voltage: number | null; channel_util: number | null; air_util_tx: number | null; temperature: number | null; humidity: number | null; pressure: number | null }
 export interface MeshNodeDetail { node: MeshNode; telemetry: TelemetryRow[]; positions: { ts: number; lat: number; lon: number; alt: number | null }[] }
 export interface MeshData { recording: boolean; retention_days: number; size: number; datasets: Record<string, { rows: number; first: number | null; last: number | null }> }
+
+export type MeshMetric = "battery" | "voltage" | "channel_util" | "air_util_tx" | "uptime_s" | "temperature" | "humidity" | "pressure";
+export interface MeshSeries { metric: MeshMetric; hours: number; series: Record<string, [number, number][]> }
+export interface MeshTrails { days: number; trails: Record<string, [number, number, number][]> }
+export interface MeshSensors {
+  hours: number; average: { temperature: number | null; humidity: number | null; pressure: number | null };
+  nodes: { id: string; name: string; readings: number; last: number; temperature: number | null; humidity: number | null; pressure: number | null }[];
+}
+export interface MeshReading { ts: number; node_id: string; node_name: string | null; node_short: string | null; node_label: string | null; kind: string;
+  battery: number | null; voltage: number | null; channel_util: number | null; air_util_tx: number | null; temperature: number | null; humidity: number | null; pressure: number | null; snr: number | null; hops: number | null }
+export interface MeshPacketTrend { days: number; hours: [number, number][]; kinds: [string, number][] }
+export interface MeshHopTrend { days: number; hours: [number, number, number][]; summary: { packets: number; average_relays: number | null; share_direct: number | null; furthest: number | null } }
 
 export interface Health {
   radio: "meshtastic" | "simulator";

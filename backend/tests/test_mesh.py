@@ -384,3 +384,19 @@ def test_api_the_node_list_survives_a_restart(tmp_path):
     again = client(tmp_path)
     nodes = {n["id"]: n for n in again.get("/api/mesh/nodes").json()["nodes"]}
     assert len(nodes) == len(sim.NODES) and nodes["!5d000002"]["label"] == "Mine"
+
+
+def test_a_position_from_the_radios_list_is_dated_by_when_it_was_fixed_not_by_when_we_copied_it():
+    entry = {"num": 0xA1B2C3D4, "user": {"id": "!a1b2c3d4"}, "position": {"latitude": 46.9, "longitude": -121.7, "time": NOW - 7200}}
+    assert O.node_row(entry, None, NOW)["pos_time"] == NOW - 7200
+    for bad in (0, None, NOW + 99, "x", True, 5):
+        assert O.node_row({**entry, "position": {**entry["position"], "time": bad}}, None, NOW)["pos_time"] is None
+
+
+async def test_the_imported_position_carries_its_own_time_and_falls_back_to_now_when_it_has_none():
+    rows = [{"id": "!a1b2c3d4", "lat": 46.9, "lon": -121.7, "pos_time": NOW - 7200}, {"id": "!b1b2c3d4", "lat": 47.0, "lon": -121.8, "pos_time": None}]
+    service, _ = svc(radio_nodes=rows)
+    service.import_radio_nodes()
+    await service.flush()
+    by = {r["id"]: r for r in service.rows()}
+    assert by["!a1b2c3d4"]["pos_ts"] == NOW - 7200 and by["!b1b2c3d4"]["pos_ts"] == NOW

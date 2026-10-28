@@ -6,6 +6,7 @@ import { UpdatesCard } from "../components/UpdatesCard";
 import { Button, Card, Field, PageHeader, SectionTitle, Toggle } from "../components/ui";
 import { api, errorText } from "../lib/api";
 import { useDraft, useSettings } from "../lib/settings";
+import type { Settings } from "../lib/types";
 import { applyTheme, getThemePref, ThemePref } from "../lib/theme";
 import { useToast } from "../lib/toast";
 import { usePoll } from "../lib/usePoll";
@@ -75,6 +76,10 @@ export function SettingsPage() {
             ))}
           </div>
         </fieldset>
+        <div className="mt-4 grid gap-x-6 sm:grid-cols-2">
+          <Field label="Temperatures" htmlFor="u-temp" help="Readings are kept in °C; this only changes how they are shown."><select id="u-temp" className="field" value={draft.temperature_unit} onChange={(e) => set({ temperature_unit: e.target.value as Settings["temperature_unit"] })}><option value="C">Celsius (°C)</option><option value="F">Fahrenheit (°F)</option></select></Field>
+          <Field label="Distances" htmlFor="u-dist" help="Shown on the Map and the Nodes page."><select id="u-dist" className="field" value={draft.distance_unit} onChange={(e) => set({ distance_unit: e.target.value as Settings["distance_unit"] })}><option value="km">Kilometres</option><option value="mi">Miles</option></select></Field>
+        </div>
       </Card>
 
       <UpdatesCard draft={draft} set={set} />

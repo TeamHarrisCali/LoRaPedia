@@ -5,6 +5,24 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Added (beta: the MeshtasticLLM merge, phase 2)
+- **Map.** Every node with a known position drawn on a plain offline grid (Web Mercator) with latitude and longitude lines and a scale
+  bar: drag to move, scroll or use the buttons to zoom, arrow keys to pan, search, filter by how recently a node was heard, optional
+  movement trails, and a card with the node's details and its distance from this radio. No background picture, so nothing is fetched
+  from the internet.
+- **Telemetry.** Sensor averages around you (each node counted once however often it reports, impossible values already dropped), a
+  history chart of battery, voltage, channel use, temperature, humidity, pressure or uptime for the nodes you choose, a table of the
+  newest readings and a CSV export.
+- **Trends.** When the mesh is busiest by hour of the day, a heat map of the last week, and how many relays packets passed through.
+  Counts only. They say plainly when too little has been recorded to mean much yet.
+- **Temperature (°C/°F) and distance (km/mi) settings**, used by the new pages and the Nodes page.
+
+### Fixed
+- **CSV exports could run a stranger's text as a spreadsheet formula.** Names and questions come from strangers, and a cell that starts
+  with `=`, `+`, `-` or `@` is run by spreadsheet programs. The question-log export and the new telemetry export now mark such cells as
+  plain text.
+- A position copied from the radio's node list is now dated by when it was fixed, not by when LoRaPedia copied it.
+
 ## [0.2.0-beta.4] - 2026-10-28
 
 A test version for the beta channel. It adds nothing of its own beyond [0.2.0-beta.3] and brings in [0.1.10] and [0.1.11] (below):

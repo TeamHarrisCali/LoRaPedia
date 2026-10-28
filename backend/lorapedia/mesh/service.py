@@ -130,7 +130,7 @@ class MeshService:
                 if v is not None and k not in f:  # what a packet just told us is fresher than the list
                     f[k] = int(v) if isinstance(v, bool) else v
             if r.get("lat") is not None and "lat" not in f:
-                self._position(r["id"], f, (r["lat"], r["lon"], r.get("alt")), now, "radio")
+                self._position(r["id"], f, (r["lat"], r["lon"], r.get("alt")), r.get("pos_time") or now, "radio")  # when the fix was made, if known
         return len(rows)
 
     # ---- writing to disk ------------------------------------------------------------------------------------------------

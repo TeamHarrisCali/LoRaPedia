@@ -16,6 +16,9 @@ const NAV = [
   { to: "/model", label: "Model", icon: "cpu" },
   { to: "/radio", label: "Radio", icon: "radio" },
   { to: "/nodes", label: "Nodes", icon: "nodes" },
+  { to: "/map", label: "Map", icon: "map" },
+  { to: "/telemetry", label: "Telemetry", icon: "chart" },
+  { to: "/trends", label: "Trends", icon: "feed" },
   { to: "/settings", label: "Settings", icon: "settings" },
 ];
 

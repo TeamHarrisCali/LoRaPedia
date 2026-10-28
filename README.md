@@ -223,8 +223,11 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 | **Radio** | Connection (USB / network / Bluetooth / simulator), trigger prefixes, hop limit, **byte limit (50 to 233)**, multi-part and its cap, pause between sends, node block/allow lists |
 | **Model** | Language and embedding model (install with progress), temperature, max tokens, passages retrieved, system prompt (with *Reset to default*), a "try it" box showing the byte count |
 | **Knowledge** | Wikipedia files, downloads, indexing, a search playground |
+| **Map** *(beta)* | Every node with a known position on a plain offline grid with a scale bar: pan, zoom, search, filter by how recently it was heard, optional movement trails, and a card with distance from this radio. There is no background map picture, on purpose: LoRaPedia works without the internet |
+| **Telemetry** *(beta)* | What nodes broadcast: sensor averages around you (each node counted once), battery, voltage, channel use, temperature, humidity and pressure over time for the nodes you pick, a table of recent readings, and a CSV export |
+| **Trends** *(beta)* | When the mesh is busiest (by hour of the day), a heat map of the last week, and how far packets travel (directly, or through how many relays). Counts only |
 | **Nodes** *(beta)* | Every node the radio has heard: names, hardware, hops, signal, battery, sensors, last position, and a history of each. Search and filter, and add your own label and note to any node |
-| **Settings** | Rate limits, queue length, AI-memory fallback, theme, backups, mesh data, CSV export of the log, demo data |
+| **Settings** | Rate limits, queue length, AI-memory fallback, theme, temperature and distance units, backups, mesh data, CSV export of the log, demo data |
 
 Environment variables exist for deployment only: `LORAPEDIA_DATA` (data folder), `LORAPEDIA_HOST`,
 `LORAPEDIA_PORT`, and `LORAPEDIA_OLLAMA_URL` (where Ollama is, used for first-run defaults).

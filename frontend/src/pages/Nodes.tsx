@@ -6,6 +6,7 @@ import { api, errorText } from "../lib/api";
 import { fmtDuration, timeAgo } from "../lib/format";
 import { useToast } from "../lib/toast";
 import type { MeshNode, MeshNodeDetail, MeshNodes, TelemetryRow } from "../lib/types";
+import { fmtTemp, useUnits } from "../lib/units";
 import { usePoll } from "../lib/usePoll";
 
 const FILTERS = [
@@ -44,6 +45,7 @@ function Series({ rows, pick, label, unit, digits = 1 }: { rows: TelemetryRow[];
 
 function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
   const toast = useToast();
+  const units = useUnits();
   const d = usePoll(() => api.get<MeshNodeDetail>(`/api/mesh/nodes/${encodeURIComponent(id)}`), 15000);
   const n = d.data?.node;
   const [label, setLabel] = useState(""), [note, setNote] = useState(""), [busy, setBusy] = useState(false);
@@ -69,7 +71,7 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
     ["Battery", battery(n.battery) + (n.voltage !== null ? ` (${n.voltage.toFixed(2)} V)` : "")],
     ["Channel use", n.channel_util === null ? "–" : `${n.channel_util.toFixed(1)}% (sending ${num(n.air_util_tx, 1, "%")})`],
     ["Uptime", n.uptime_s === null ? "–" : fmtDuration(n.uptime_s)],
-    ["Weather", n.temperature === null && n.humidity === null && n.pressure === null ? "–" : [num(n.temperature, 1, " °C"), num(n.humidity, 0, " %"), num(n.pressure, 0, " hPa")].join("  ")],
+    ["Weather", n.temperature === null && n.humidity === null && n.pressure === null ? "–" : [n.temperature === null ? "–" : fmtTemp(n.temperature, units.temperature), num(n.humidity, 0, " %"), num(n.pressure, 0, " hPa")].join("  ")],
     ["Position", n.lat === null ? "–" : `${n.lat.toFixed(5)}, ${n.lon!.toFixed(5)}${n.alt !== null ? `, ${Math.round(n.alt)} m` : ""} (${n.pos_source ?? "?"}, ${timeAgo(n.pos_ts)})`],
   ];
   return (
@@ -90,7 +92,7 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
           <Series rows={tel} pick={(r) => r.battery} label="Battery" unit="%" digits={0} />
           <Series rows={tel} pick={(r) => r.voltage} label="Voltage" unit=" V" digits={2} />
           <Series rows={tel} pick={(r) => r.channel_util} label="Channel use" unit="%" />
-          <Series rows={tel} pick={(r) => r.temperature} label="Temperature" unit=" °C" />
+          <Series rows={tel} pick={(r) => r.temperature === null ? null : units.temperature === "F" ? r.temperature * 9 / 5 + 32 : r.temperature} label="Temperature" unit={units.temperature === "F" ? " °F" : " °C"} />
           <Series rows={tel} pick={(r) => r.humidity} label="Humidity" unit="%" digits={0} />
         </div>
       )}

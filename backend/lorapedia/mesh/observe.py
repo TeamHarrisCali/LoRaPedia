@@ -133,6 +133,11 @@ def observe(packet: dict, my_num: int | None, now: float) -> Observation | None:
     return obs
 
 
+def _believable_time(t, now: float):
+    """When a position was fixed, if the radio says so and it is a plausible moment in the past; else None."""
+    return float(t) if num(t) and 1_000_000_000 < t <= now else None
+
+
 def node_row(entry: dict, my_num: int | None, now: float, key: str | None = None) -> dict | None:
     """One entry of the radio's own node list (`key` is its key in that list, the node id), flattened. None if it has no usable id."""
     if not isinstance(entry, dict):
@@ -159,5 +164,6 @@ def node_row(entry: dict, my_num: int | None, now: float, key: str | None = None
         "last_heard": float(last) if num(last) and 1_000_000_000 < last < 4_300_000_000 else None,  # the radio sends 0 with no clock
         "via_mqtt": bool(entry.get("viaMqtt")), "favorite": bool(entry.get("isFavorite")), "has_key": bool(u.get("publicKey")),
         "lat": pos[0] if pos else None, "lon": pos[1] if pos else None, "alt": pos[2] if pos else None,
+        "pos_time": _believable_time((entry.get("position") or {}).get("time") if isinstance(entry.get("position"), dict) else None, now),
         "is_self": (n is not None and n == my_num) or (my_num is not None and nid == f"!{my_num:08x}"), **{k: metrics.get(k) for k in LIMITS},
     }

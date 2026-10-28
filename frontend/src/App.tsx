@@ -7,7 +7,10 @@ import { Dashboard } from "./pages/Dashboard";
 import { Knowledge } from "./pages/Knowledge";
 import { LiveFeed } from "./pages/LiveFeed";
 import { Model } from "./pages/Model";
+import { MapPage } from "./pages/MapPage";
 import { Nodes } from "./pages/Nodes";
+import { Telemetry } from "./pages/Telemetry";
+import { Trends } from "./pages/Trends";
 import { Radio } from "./pages/Radio";
 import { SettingsPage } from "./pages/SettingsPage";
 import { Wizard } from "./pages/Wizard";
@@ -27,6 +30,9 @@ export default function App() {
                 <Route path="radio" element={<Radio />} />
                 <Route path="nodes" element={<Nodes />} />
                 <Route path="nodes/:id" element={<Nodes />} />
+                <Route path="map" element={<MapPage />} />
+                <Route path="telemetry" element={<Telemetry />} />
+                <Route path="trends" element={<Trends />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="setup" element={<Wizard />} />
               </Route>
