@@ -311,6 +311,7 @@ model has no tools and cannot run anything, so the worst outcome of a hostile qu
 | Symptom | What to do |
 |---|---|
 | **"No radio found. Is it plugged in?"** | Check the USB cable carries data (try another). Press Retry. Run `ls /dev/ttyACM* /dev/ttyUSB*`: if nothing appears, the computer does not see the radio. Meanwhile the simulator keeps everything usable. |
+| **The radio will not connect (Linux)** | The Radio page now looks at the real device files and tells you which of the usual causes it is, with the exact commands to copy: a cable that only charges, your user (or the container) not being in the device's group, a device file that its group may not write to (it offers a udev rule), another program holding the port (ModemManager, the Meshtastic app), or a radio that does not answer. |
 | **"Permission denied" on the serial port** | Add your user to the serial group (`sudo usermod -aG dialout $USER`, or `uucp` on Arch) and log out and in. In Docker the container learns the device's group when it starts: run `docker compose restart lorapedia`. |
 | **"The serial port is busy"** | Another program has it: the Meshtastic app or CLI, or ModemManager on Linux. Close them, or stop ModemManager (`sudo systemctl stop ModemManager`). |
 | **"Several radios found"** | Choose *USB, choose the port* and pick one. |
