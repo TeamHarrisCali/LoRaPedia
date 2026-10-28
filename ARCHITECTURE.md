@@ -81,6 +81,10 @@ not be indexed yet.
 | `llm/openai_compat.py` | Chat client for Ollama, llama.cpp, LM Studio (OpenAI-style API). |
 | `download.py`, `ollama.py` | Resumable ZIM downloads and Kiwix catalog; model listing and pulls. |
 | `store.py` | Settings and the query log (SQLite). |
+| `mesh/observe.py` | Turns a received packet or the radio's node list into checked facts (positions, sensor readings, names, hops, signal). Pure. |
+| `mesh/store.py` | `mesh.db`: remembered nodes, telemetry, position trails, hourly packet/signal/hop counts, your notes; pruning. |
+| `mesh/service.py` | Buffers what the radio hears on the event loop, writes it in batches, and builds the node list and summary. Never transmits. |
+| `mesh/sim.py` | A made-up mesh for demos and tests. |
 | `backups.py` | Verified backups of that database: daily, before updates and restores; download, upload, restore. |
 | `sources.py` | Which retrieved article an answer came from, for the web panel only (nothing about it is sent over the radio). |
 | `system.py`, `demo.py`, `sample.py` | Hardware detection; demo data; a tiny generated ZIM. |
@@ -156,6 +160,7 @@ search quietly degrades to keyword-only.
 data/
   lorapedia.db     settings, query log, wizard state
   index.db         chunks, FTS5, vectors, library, checkpoints
+  mesh.db          nodes the radio has heard, their telemetry, positions and signal (pruned by age); your node labels and notes
   zim/             Wikipedia files (and *.part while downloading)
 ```
 

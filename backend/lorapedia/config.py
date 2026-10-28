@@ -38,6 +38,10 @@ class Settings(BaseModel):
     # When the whole library is indexed and still has nothing, answer from the model's memory, marked as a guess.
     ai_fallback: bool = True
 
+    # What the radio hears of the rest of the mesh (nodes, positions, telemetry, signal), kept in mesh.db. Never message content.
+    mesh_record: bool = True
+    mesh_retention_days: int = Field(30, ge=1, le=365)
+
     # Backups of the settings and question log (see backups.py)
     auto_backup: bool = True  # one a day while running
     backup_keep: int = Field(7, ge=1, le=60)  # how many automatic ones to keep

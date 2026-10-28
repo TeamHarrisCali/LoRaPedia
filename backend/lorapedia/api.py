@@ -24,6 +24,9 @@ from .embed import Embedder, HashEmbedder, OllamaEmbedder
 from .engine import Engine
 from .index import Index, Indexer
 from .llm.base import MockLLM
+from .mesh import sim as mesh_sim
+from .mesh.service import MeshService
+from .mesh.store import MeshStore, NODE_ID_RE, NoteError
 from .llm.openai_compat import OpenAICompatLLM
 from .radio.base import Packet
 from .radio.manager import RadioManager
@@ -130,7 +133,9 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
 
     retriever = RoutingRetriever(index, current_embedder)
     engine: Engine  # created below; the radio manager submits received packets to it
-    radio = RadioManager(settings=settings, submit=lambda pkt: engine.submit(pkt), emit=broadcast,
+    mesh_store = MeshStore(data / "mesh.db")
+    mesh = MeshService(mesh_store, settings, radio_nodes=lambda: radio.nodes(), my_id=lambda: radio.node_id)
+    radio = RadioManager(settings=settings, submit=lambda pkt: engine.submit(pkt), emit=broadcast, on_mesh=mesh.on_packet,
                          **{k: v for k, v in (radio_options or {}).items() if k not in _NON_RADIO_OPTIONS})
     engine = Engine(settings=settings, radio=radio, sim_radio=radio.sim, llm=configured_llm,
                     retriever=retriever, store=store, emit=broadcast, library_state=index.library_state)
@@ -219,6 +224,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         updates.start()
         wiki_updates.start()
         backups.start()
+        mesh.start()
         yield
         indexer.stop()
         worker.cancel()
@@ -226,6 +232,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         wiki_updates.stop()
         backups.stop()
         await radio.stop()
+        await mesh.stop()
 
     app = FastAPI(title="LoRaPedia", lifespan=lifespan)
     app.state.engine, app.state.index, app.state.indexer, app.state.radio, app.state.updates = engine, index, indexer, radio, updates
@@ -501,6 +508,53 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     async def settings_backup():
         return Response(settings().model_dump_json(indent=2), media_type="application/json",
                         headers={"Content-Disposition": 'attachment; filename="lorapedia-settings.json"'})
+
+    # ---- the mesh: nodes the radio has heard (kept in mesh.db) --------------------------------------
+
+    class NoteBody(BaseModel):
+        label: str | None = None
+        note: str | None = None
+
+    def mesh_node_id(node_id: str) -> str:
+        if not NODE_ID_RE.match(node_id):
+            raise HTTPException(404, "That is not a node id.")
+        return node_id
+
+    @app.get("/api/mesh/nodes")
+    async def mesh_nodes():
+        rows = await asyncio.to_thread(mesh.rows)
+        return {"nodes": rows, "summary": mesh.summary(rows), "recording": mesh.recording,
+                "retention_days": settings().mesh_retention_days, "radio": radio.active}
+
+    @app.get("/api/mesh/nodes/{node_id}")
+    async def mesh_node(node_id: str, days: int = 7):
+        node_id = mesh_node_id(node_id)
+        row = next((r for r in await asyncio.to_thread(mesh.rows) if r["id"] == node_id), None)
+        if row is None:
+            raise HTTPException(404, "No node with that id has been heard.")
+        since = mesh._clock() - max(1, min(days, 90)) * 86400
+        return {"node": row, "telemetry": await asyncio.to_thread(mesh_store.telemetry, node_id, since),
+                "positions": await asyncio.to_thread(mesh_store.positions, node_id)}
+
+    @app.put("/api/mesh/nodes/{node_id}/note")
+    async def mesh_node_note(node_id: str, body: NoteBody):
+        try:
+            return await asyncio.to_thread(mesh_store.set_note, mesh_node_id(node_id), body.label, body.note)
+        except NoteError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/mesh/data")
+    async def mesh_data():
+        path = data / "mesh.db"
+        return {"recording": mesh.recording, "retention_days": settings().mesh_retention_days, "datasets": await asyncio.to_thread(mesh_store.counts),
+                "size": path.stat().st_size if path.exists() else 0}
+
+    @app.post("/api/mesh/demo")
+    async def mesh_demo():
+        """Fill the node list with a made-up mesh (like the demo conversations), so the pages can be seen without a radio."""
+        n = mesh_sim.seed(mesh, mesh._clock())
+        await mesh.flush()
+        return {"observations": n}
 
     # ---- backups of the settings and question log ----------------------------------------------
 

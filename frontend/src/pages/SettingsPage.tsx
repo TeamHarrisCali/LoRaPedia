@@ -1,6 +1,7 @@
 import { ChangeEvent, useState } from "react";
 import { SaveBar } from "../components/SaveBar";
 import { BackupsCard } from "../components/BackupsCard";
+import { MeshDataCard } from "../components/MeshDataCard";
 import { UpdatesCard } from "../components/UpdatesCard";
 import { Button, Card, Field, PageHeader, SectionTitle, Toggle } from "../components/ui";
 import { api, errorText } from "../lib/api";
@@ -79,6 +80,8 @@ export function SettingsPage() {
       <UpdatesCard draft={draft} set={set} />
 
       <BackupsCard draft={draft} set={set} />
+
+      <MeshDataCard draft={draft} set={set} />
 
       <Card className="mb-5">
         <SectionTitle hint="Where LoRaPedia keeps its databases and Wikipedia files.">Data</SectionTitle>

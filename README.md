@@ -222,7 +222,8 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 | **Radio** | Connection (USB / network / Bluetooth / simulator), channel, trigger mode and prefixes, hop limit, **byte limit (50 to 233)**, multi-part and its cap, pause between sends, node block/allow lists |
 | **Model** | Language and embedding model (install with progress), temperature, max tokens, passages retrieved, system prompt (with *Reset to default*), a "try it" box showing the byte count |
 | **Knowledge** | Wikipedia files, downloads, indexing, a search playground |
-| **Settings** | Rate limits, queue length, AI-memory fallback, theme, backups, CSV export of the log, demo data |
+| **Nodes** *(beta)* | Every node the radio has heard: names, hardware, hops, signal, battery, sensors, last position, and a history of each. Search and filter, and add your own label and note to any node |
+| **Settings** | Rate limits, queue length, AI-memory fallback, theme, backups, mesh data, CSV export of the log, demo data |
 
 Environment variables exist for deployment only: `LORAPEDIA_DATA` (data folder), `LORAPEDIA_HOST`,
 `LORAPEDIA_PORT`, and `LORAPEDIA_OLLAMA_URL` (where Ollama is, used for first-run defaults).
@@ -280,6 +281,13 @@ removes the old one only when the new one is fully ready. It only touches packag
 edition, never your own files), only when the node is quiet, never without enough disk space for the new edition and its
 index, and never rebuilds your index on its own. If it cannot start, Settings says why and it tries again a day later.
 Updating takes a while (a download, then re-indexing) and questions keep being answered meanwhile.
+
+**Mesh data** *(beta)*. To build the Nodes page, LoRaPedia remembers what the radio hears from other nodes: their names, hardware,
+last known position, battery and sensor readings, signal strength and how many relays a packet passed through. It never keeps the
+content of any message. It stays on this computer in `mesh.db` (separate from your settings and question log, and not part of
+*Backups*), history is deleted after 30 days by default (a node not heard for 90 days is forgotten, and position trails live three
+times as long), and *Settings → Mesh data* turns the recording off or changes the retention. Positions are location data: keep that in
+mind before sharing the file or the screen. Your labels and notes are never deleted by the clean-up and never sent over the radio.
 
 ## Security
 

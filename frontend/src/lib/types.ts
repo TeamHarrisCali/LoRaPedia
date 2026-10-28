@@ -14,6 +14,8 @@ export interface Settings {
   send_delay_s: number;
   ai_fallback: boolean;
   auto_backup: boolean;
+  mesh_record: boolean;
+  mesh_retention_days: number;
   update_channel: "stable" | "beta";
   backup_keep: number;
   update_check: boolean;
@@ -40,6 +42,24 @@ export interface Settings {
 
 export interface BackupItem { name: string; kind: "manual" | "auto" | "pre-update" | "before-restore" | "uploaded"; size: number; ts: number }
 export interface BackupStatus { items: BackupItem[]; auto_backup: boolean; backup_keep: number; folder: string; total_size: number }
+
+export interface MeshNode {
+  id: string; num: number | null; name: string | null; short: string | null; hw: string | null; role: string | null;
+  label: string | null; note: string | null; display: string; us: boolean; live: boolean; remembered: boolean;
+  first_seen: number; last_seen: number; last_heard: number | null; age_s: number | null;
+  hops: number | null; hops_measured: boolean; snr: number | null; rssi: number | null; via_mqtt: number | null; has_key: number | null;
+  lat: number | null; lon: number | null; alt: number | null; pos_ts: number | null; pos_source: string | null;
+  battery: number | null; voltage: number | null; channel_util: number | null; air_util_tx: number | null; uptime_s: number | null;
+  temperature: number | null; humidity: number | null; pressure: number | null; metrics_ts: number | null;
+}
+export interface MeshSummary {
+  nodes_total: number; heard_15m: number; heard_1h: number; heard_24h: number; direct: number; with_position: number;
+  with_telemetry: number; via_mqtt: number; avg_channel_util: number | null; roles: Record<string, number>; hardware: Record<string, number>;
+}
+export interface MeshNodes { nodes: MeshNode[]; summary: MeshSummary; recording: boolean; retention_days: number; radio: string }
+export interface TelemetryRow { ts: number; kind: string; battery: number | null; voltage: number | null; channel_util: number | null; air_util_tx: number | null; temperature: number | null; humidity: number | null; pressure: number | null }
+export interface MeshNodeDetail { node: MeshNode; telemetry: TelemetryRow[]; positions: { ts: number; lat: number; lon: number; alt: number | null }[] }
+export interface MeshData { recording: boolean; retention_days: number; size: number; datasets: Record<string, { rows: number; first: number | null; last: number | null }> }
 
 export interface Health {
   radio: "meshtastic" | "simulator";

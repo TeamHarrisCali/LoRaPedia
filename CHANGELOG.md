@@ -5,6 +5,14 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Added (beta: the MeshtasticLLM merge, phase 1)
+- **The mesh database and a Nodes page.** The radio adapter now listens to every packet (not only text) and LoRaPedia remembers each
+  node it hears in a separate `mesh.db`: name, hardware, role, hops (measured, not just reported), signal, battery and sensor
+  readings, last position, plus per-hour packet, signal and hop counts and a position trail. Message content is never kept. The
+  **Nodes** page lists them with search and filters, shows each node's history, and lets you add your own label and note.
+  **Settings → Mesh data** turns recording off and sets how long history is kept (30 days by default). A made-up mesh can be loaded to
+  try the page without a radio. Not yet verified on a real radio: parsing is tested against the library's packet shapes with fakes.
+
 ## [0.1.6] - 2026-10-28
 
 ### Added

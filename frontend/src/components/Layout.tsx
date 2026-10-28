@@ -15,6 +15,7 @@ const NAV = [
   { to: "/knowledge", label: "Knowledge", icon: "book" },
   { to: "/model", label: "Model", icon: "cpu" },
   { to: "/radio", label: "Radio", icon: "radio" },
+  { to: "/nodes", label: "Nodes", icon: "nodes" },
   { to: "/settings", label: "Settings", icon: "settings" },
 ];
 

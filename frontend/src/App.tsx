@@ -7,6 +7,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Knowledge } from "./pages/Knowledge";
 import { LiveFeed } from "./pages/LiveFeed";
 import { Model } from "./pages/Model";
+import { Nodes } from "./pages/Nodes";
 import { Radio } from "./pages/Radio";
 import { SettingsPage } from "./pages/SettingsPage";
 import { Wizard } from "./pages/Wizard";
@@ -24,6 +25,8 @@ export default function App() {
                 <Route path="knowledge" element={<Knowledge />} />
                 <Route path="model" element={<Model />} />
                 <Route path="radio" element={<Radio />} />
+                <Route path="nodes" element={<Nodes />} />
+                <Route path="nodes/:id" element={<Nodes />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="setup" element={<Wizard />} />
               </Route>

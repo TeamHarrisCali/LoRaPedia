@@ -26,11 +26,13 @@ class RadioManager:
         settings: Callable[[], Settings],
         submit: Callable[[Packet], Awaitable[Any]],
         emit: Callable[[dict], Awaitable[None]] | None = None,
+        on_mesh: Callable[[dict, int | None], None] | None = None,
         factory: Callable[[ConnectionSpec], Any] = _default_factory,
         port_lister: Callable[[], list[str]] = list_serial_ports,
         poll_s: float = 15.0,
     ) -> None:
         self.sim = SimulatorRadio()
+        self._on_mesh = on_mesh
         self._settings, self._submit, self._emit = settings, submit, emit
         self._factory, self._list_ports, self.poll_s = factory, port_lister, poll_s
         self._real: MeshtasticRadio | None = None
@@ -112,7 +114,7 @@ class RadioManager:
             self.error = why
             self._failures = 0
         elif real is None:
-            candidate = MeshtasticRadio(spec, on_packet=self._deliver, on_lost=self._lost, factory=self._factory)
+            candidate = MeshtasticRadio(spec, on_packet=self._deliver, on_lost=self._lost, on_mesh=self._on_mesh, factory=self._factory)
             try:
                 await candidate.connect()
                 self._real, self.error, self._failures = candidate, None, 0

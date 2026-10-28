@@ -31,8 +31,8 @@ class FakeIface:
         self.myInfo = SimpleNamespace(my_node_num=MY_NUM)
         self.nodes = {
             "!a1b2c3d4": {"user": {"shortName": "BOB", "longName": "Bob's node", "hwModel": "HELTEC_V3"},
-                          "snr": 5.5, "lastHeard": 200, "hopsAway": 1},
-            "!1234abcd": {"user": {"shortName": "LORA", "longName": "LoRaPedia", "id": "!1234abcd"}, "lastHeard": 300},
+                          "snr": 5.5, "lastHeard": 1_700_000_200, "hopsAway": 1},
+            "!1234abcd": {"user": {"shortName": "LORA", "longName": "LoRaPedia", "id": "!1234abcd"}, "lastHeard": 1_700_000_300},
         }
         self.localNode = SimpleNamespace(channels=[
             SimpleNamespace(index=0, role=1, settings=SimpleNamespace(name="")),

@@ -15,6 +15,7 @@ from typing import Any, Awaitable, Callable, Literal
 from pubsub import pub
 
 from ..fitter import byte_len
+from ..mesh.observe import node_row
 from .base import Packet
 
 log = logging.getLogger(__name__)
@@ -96,12 +97,13 @@ class MeshtasticRadio:
         *,
         on_packet: Callable[[Packet, dict], Awaitable[None]],
         on_lost: Callable[[], None] | None = None,
+        on_mesh: Callable[[dict, int | None], None] | None = None,
         factory: Callable[[ConnectionSpec], Any] = _default_factory,
     ) -> None:
         self.spec = spec
         self.node_id = ""
         self.last_rx: dict = {}
-        self._on_packet, self._on_lost, self._factory = on_packet, on_lost, factory
+        self._on_packet, self._on_lost, self._on_mesh, self._factory = on_packet, on_lost, on_mesh, factory
         self._iface: Any = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._seen: deque[tuple] = deque(maxlen=256)  # the mesh occasionally redelivers a packet
@@ -123,12 +125,13 @@ class MeshtasticRadio:
         self._iface = iface
         self.node_id = self._own_id(iface)
         pub.subscribe(self._on_text, "meshtastic.receive.text")
+        pub.subscribe(self._on_any, "meshtastic.receive")  # every packet: positions, telemetry, node info (for the mesh database)
         pub.subscribe(self._on_connection_lost, "meshtastic.connection.lost")
         log.info("radio connected: %s (%s)", self.node_id, self.spec)
 
     async def close(self) -> None:
         iface, self._iface = self._iface, None
-        for listener, topic in ((self._on_text, "meshtastic.receive.text"),
+        for listener, topic in ((self._on_text, "meshtastic.receive.text"), (self._on_any, "meshtastic.receive"),
                                 (self._on_connection_lost, "meshtastic.connection.lost")):
             try:
                 pub.unsubscribe(listener, topic)
@@ -165,6 +168,15 @@ class MeshtasticRadio:
                 - packet.get("hopLimit", 0) if "hopStart" in packet else None, "ts": time.time()}
         self.last_rx = meta
         asyncio.run_coroutine_threadsafe(self._on_packet(parsed, meta), self._loop)
+
+    def _on_any(self, packet: dict, interface: Any) -> None:
+        """Every received packet, on the meshtastic thread. Only hands it to the event loop: parsing happens there."""
+        if self._on_mesh is None or interface is not self._iface or self._loop is None:
+            return
+        try:
+            self._loop.call_soon_threadsafe(self._on_mesh, packet, self._my_num())
+        except RuntimeError:  # the loop has closed (shutting down)
+            pass
 
     def _on_connection_lost(self, interface: Any) -> None:
         if interface is self._iface:
@@ -219,15 +231,16 @@ class MeshtasticRadio:
     # ---- info for the UI ----------------------------------------------------------------
 
     def nodes(self) -> list[dict]:
+        """The radio's node list, flattened and checked (see mesh.observe.node_row). The first keys are what the Radio page uses."""
         if self._iface is None:
             return []
-        out = []
-        for node_id, n in list((getattr(self._iface, "nodes", None) or {}).items()):
-            user = n.get("user", {})
-            out.append({"id": node_id, "short": user.get("shortName", node_id[-4:]), "long": user.get("longName", ""),
-                        "hw": user.get("hwModel"), "snr": n.get("snr"), "last_heard": n.get("lastHeard"),
-                        "hops_away": n.get("hopsAway"), "battery": (n.get("deviceMetrics") or {}).get("batteryLevel"),
-                        "is_self": node_id == self.node_id})
+        now, my_num, out = time.time(), self._my_num(), []
+        for key, entry in list((getattr(self._iface, "nodes", None) or {}).items()):
+            r = node_row(entry, my_num, now, key)
+            if r is None:
+                continue
+            out.append({**r, "short": r["short"] or r["id"][-4:], "long": r["name"] or "", "hops_away": r["hops"], "battery": r["battery"],
+                        "last_heard": r["last_heard"], "is_self": r["id"] == self.node_id})
         return sorted(out, key=lambda d: -(d["last_heard"] or 0))
 
     def channels(self) -> list[dict]:
