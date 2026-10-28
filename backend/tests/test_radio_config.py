@@ -16,6 +16,7 @@ from lorapedia.llm.base import MockLLM
 from lorapedia.radio import config as rc
 from lorapedia.radio.config import ConfigError, RadioConfig
 from lorapedia.store import Store
+from radio_leaks import RadioWatch
 
 ME = "!1234abcd"
 SECRETS = ("S3CRETKEYBYTES", "hunter2hunter2", "mqtt-pass-word", "987654")
@@ -314,24 +315,12 @@ def api_client(tmp_path, node=None):
     return TestClient(create_app(str(tmp_path), llm=MockLLM(), embedder=HashEmbedder(), radio_options=opts)), node
 
 
-def subscribers(topic):
-    """Who is subscribed to a meshtastic pypubsub topic. The topics are global, shared by every test in the process."""
-    from pubsub import pub
-    try:
-        return {id(l.getCallable()) for l in pub.getDefaultTopicMgr().getTopic(topic).getListeners()}
-    except Exception:
-        return set()  # the topic was never created: nobody subscribed
-
-
 @pytest.fixture(autouse=True)
-def no_radio_left_subscribed():
-    """A radio left subscribed is garbage collected later and breaks whichever test publishes on the shared topic next. Only what THIS test
-    added is checked: other test files may leave their own behind."""
-    topics = ("meshtastic.receive.text", "meshtastic.receive")
-    before = {t: subscribers(t) for t in topics}
+def no_radio_left_subscribed(monkeypatch):
+    """Every radio this test connects must be closed again (see radio_leaks.py). Only this test's radios are checked."""
+    watch = RadioWatch(monkeypatch)
     yield
-    for t in topics:
-        assert subscribers(t) <= before[t], f"a radio connected by this test is still subscribed to {t}"
+    assert watch.still_subscribed() == []
 
 
 def wait_connected(c):

@@ -20,6 +20,7 @@ from lorapedia.radio.manager import RadioManager
 from lorapedia.radio.meshtastic_radio import RadioError
 from lorapedia.retrieval.base import DemoRetriever
 from lorapedia.store import UNCONFIRMED_AFTER_S, Store, summarize_delivery
+from radio_leaks import RadioWatch
 
 MY_NUM = 0x1234ABCD
 BOB, BOB_NUM = "!a1b2c3d4", 0xA1B2C3D4
@@ -56,25 +57,14 @@ def routing(request_id, sender, reason="NONE"):
 _OPEN: list[RadioManager] = []
 
 
-def listeners(topic):
-    """Who is subscribed to a meshtastic pypubsub topic (the topics are global, shared by every test in the process)."""
-    from pubsub import pub
-    try:
-        return {id(l.getCallable()) for l in pub.getDefaultTopicMgr().getTopic(topic).getListeners()}
-    except Exception:
-        return set()
-
-
 @pytest.fixture(autouse=True)
-async def close_radios():
-    """Every radio a test connects is closed again. A radio left subscribed is garbage collected some time later, and the next test that
-    publishes on the shared topic then fails with pypubsub's "Dead Listener called" (it showed up as a flaky test_radio.py on one Python)."""
-    before = {t: listeners(t) for t in ("meshtastic.receive.text", "meshtastic.receive")}
+async def close_radios(monkeypatch):
+    """Every radio a test connects is closed again (see radio_leaks.py: a leftover shows up later as a flaky "Dead Listener called")."""
+    watch = RadioWatch(monkeypatch)
     yield
     while _OPEN:
         await _OPEN.pop().stop()
-    for t, was in before.items():
-        assert listeners(t) <= was, f"a radio connected by this test is still subscribed to {t}"  # only this test's: other files may leave their own
+    assert watch.still_subscribed() == []
 
 
 class Clock:
