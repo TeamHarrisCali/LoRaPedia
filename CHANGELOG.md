@@ -5,6 +5,10 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.2.0-beta.6] - 2026-10-28
+
+A test version for the beta channel: the MeshtasticLLM merge, phase 3.
+
 ### Added (beta: the MeshtasticLLM merge, phase 3)
 - **Traceroute.** Pick a node and LoRaPedia asks the mesh which way a packet takes to it and back, with the signal at each hop, shown as
   two lists and on a map (solid there, dashed back, dotted across hops with no known position) and saved to a history. A traceroute
