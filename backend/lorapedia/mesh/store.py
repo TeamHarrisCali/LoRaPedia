@@ -53,6 +53,14 @@ CREATE INDEX IF NOT EXISTS positions_node ON positions (node_id, id);
 """
 
 
+def _thin(points: list, limit: int) -> list:
+    """At most `limit` points, spread evenly and always keeping the first and the last."""
+    if len(points) <= limit:
+        return points
+    step = (len(points) - 1) / (limit - 1)
+    return [points[round(i * step)] for i in range(limit)]
+
+
 class NoteError(ValueError):
     """Something the operator should see, in plain words (a ValueError so the API shows it as a 400)."""
 
@@ -138,6 +146,73 @@ class MeshStore:
         with self._lock:
             rows = self._db.execute("SELECT ts, lat, lon, alt FROM positions WHERE node_id=? ORDER BY id DESC LIMIT ?", (node_id, limit)).fetchall()
         return [dict(r) for r in reversed(rows)]
+
+    # ---- the pages built on the history ----------------------------------------------------------------------------
+    def trails(self, since: float, per_node: int = 150) -> dict[str, list[list]]:
+        """Where each node has been since `since`: {node: [[lat, lon, ts], ...]} oldest first, thinned evenly to `per_node` points."""
+        with self._lock:
+            rows = self._db.execute("SELECT node_id, ts, lat, lon FROM positions WHERE ts >= ? ORDER BY node_id, ts", (since,)).fetchall()
+        out: dict[str, list[list]] = {}
+        for r in rows:
+            out.setdefault(r["node_id"], []).append([r["lat"], r["lon"], r["ts"]])
+        return {n: _thin(pts, per_node) for n, pts in out.items() if len(pts) >= 2}  # one point is not a trail
+
+    def series(self, metric: str, since: float, node_ids: list[str] | None = None, max_points: int = 300) -> dict[str, list[list]]:
+        """One metric over time: {node: [[ts, value], ...]}. `metric` must be one of METRICS (it is used as a column name)."""
+        if metric not in METRICS:
+            raise ValueError("Unknown metric.")
+        sql, args = f"SELECT node_id, ts, {metric} AS v FROM telemetry WHERE ts >= ? AND {metric} IS NOT NULL", [since]
+        if node_ids is not None:
+            sql += f" AND node_id IN ({', '.join('?' * len(node_ids))})"
+            args += node_ids
+        with self._lock:
+            rows = self._db.execute(sql + " ORDER BY node_id, ts", args).fetchall()
+        out: dict[str, list[list]] = {}
+        for r in rows:
+            out.setdefault(r["node_id"], []).append([r["ts"], r["v"]])
+        return {n: _thin(pts, max_points) for n, pts in out.items()}
+
+    def readings(self, since: float, limit: int = 200, node_id: str | None = None) -> list[dict]:
+        """The newest telemetry readings with the node's name, newest first (for the table and the CSV export)."""
+        sql = ("SELECT t.*, n.name AS node_name, n.short AS node_short, u.label AS node_label FROM telemetry t "
+               "LEFT JOIN nodes n USING (node_id) LEFT JOIN node_notes u USING (node_id) WHERE t.ts >= ?")
+        args: list = [since]
+        if node_id:
+            sql += " AND t.node_id = ?"
+            args.append(node_id)
+        with self._lock:
+            rows = self._db.execute(sql + " ORDER BY t.ts DESC LIMIT ?", [*args, limit]).fetchall()
+        return [dict(r) for r in rows]
+
+    def sensor_averages(self, since: float) -> list[dict]:
+        """Per node: its own average temperature, humidity and pressure since `since`, with how many readings and the last one."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT t.node_id, n.name, n.short, u.label, COUNT(*) AS n, MAX(t.ts) AS last, AVG(t.temperature) AS temperature, "
+                "AVG(t.humidity) AS humidity, AVG(t.pressure) AS pressure FROM telemetry t LEFT JOIN nodes n USING (node_id) "
+                "LEFT JOIN node_notes u USING (node_id) WHERE t.ts >= ? AND t.kind = 'environment' GROUP BY t.node_id ORDER BY last DESC",
+                (since,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def packet_hours(self, since_hour: int, portnum: str | None = None) -> list[list]:
+        """[[hour, packets], ...] for the hours since `since_hour`, optionally one kind of packet only."""
+        sql, args = "SELECT hour, SUM(n) AS n FROM packets WHERE hour >= ?", [since_hour]
+        if portnum:
+            sql += " AND portnum = ?"
+            args.append(portnum)
+        with self._lock:
+            return [[r["hour"], r["n"]] for r in self._db.execute(sql + " GROUP BY hour ORDER BY hour", args)]
+
+    def packet_kinds(self, since_hour: int) -> list[list]:
+        with self._lock:
+            return [[r["portnum"], r["n"]] for r in self._db.execute(
+                "SELECT portnum, SUM(n) AS n FROM packets WHERE hour >= ? GROUP BY portnum ORDER BY n DESC", (since_hour,))]
+
+    def hop_hours(self, since_hour: int) -> list[list]:
+        """[[hour, relays, packets], ...]: how many relays packets had passed through, per hour."""
+        with self._lock:
+            return [[r["hour"], r["hops"], r["n"]] for r in self._db.execute(
+                "SELECT hour, hops, n FROM hops WHERE hour >= ? ORDER BY hour, hops", (since_hour,))]
 
     def counts(self) -> dict:
         """Rows and time span of each dataset, for the operator to see what is being kept."""

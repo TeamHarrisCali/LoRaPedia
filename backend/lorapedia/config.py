@@ -38,6 +38,10 @@ class Settings(BaseModel):
     # When the whole library is indexed and still has nothing, answer from the model's memory, marked as a guess.
     ai_fallback: bool = True
 
+    # How the web interface shows temperatures and distances. The data itself is always kept in Celsius and kilometres.
+    temperature_unit: Literal["C", "F"] = "C"
+    distance_unit: Literal["km", "mi"] = "km"
+
     # What the radio hears of the rest of the mesh (nodes, positions, telemetry, signal), kept in mesh.db. Never message content.
     mesh_record: bool = True
     mesh_retention_days: int = Field(30, ge=1, le=365)

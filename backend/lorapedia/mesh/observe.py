@@ -19,6 +19,14 @@ METRICS_KEYS = tuple(LIMITS)
 ENVIRONMENT_KEYS = {"temperature": "temperature", "relativeHumidity": "humidity", "barometricPressure": "pressure"}
 
 
+def csv_cell(value):
+    """A value made safe to open in a spreadsheet: text that starts with =, +, - or @ (or a tab or return) would be run as a formula,
+    and names and messages come from strangers. Numbers pass through unchanged."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 def num(v) -> bool:
     """A real, finite int or float (not a bool, NaN or infinity)."""
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
