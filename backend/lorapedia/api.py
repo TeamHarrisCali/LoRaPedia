@@ -292,7 +292,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         if fitter.byte_len(body.text) > s.byte_limit:
             raise HTTPException(400, f"That is {fitter.byte_len(body.text)} bytes; the limit is {s.byte_limit}.")
         try:
-            await radio.send_text(body.text, body.to, s.channel_index, s.hop_limit)
+            await radio.send_text(body.text, body.to, 0, s.hop_limit)
         except RadioError as exc:
             raise HTTPException(502, str(exc)) from exc
         return {"sent": True, "to": body.to, "bytes": fitter.byte_len(body.text)}

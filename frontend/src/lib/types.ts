@@ -1,9 +1,7 @@
 export interface Settings {
   radio_method: "auto" | "simulator" | "serial" | "tcp" | "ble";
   radio_address: string;
-  trigger_mode: "dm" | "channel" | "both";
   trigger_prefixes: string[];
-  channel_index: number;
   hop_limit: number;
   allowlist: string[];
   blocklist: string[];

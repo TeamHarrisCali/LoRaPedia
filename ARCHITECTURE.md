@@ -16,8 +16,8 @@ locally.
 In words:
 
 1. **Radio listener.** A text message arrives from the radio (or from the UI simulator). It is dropped if it is
-   from our own node, a blocked node, a node outside a non-empty allow list, or on the wrong channel. The
-   trigger rules decide whether it is a *question*, a *command* (`?help`, `?more`, `?stats`, `?ping`) or noise.
+   from our own node, a blocked node, a node outside a non-empty allow list, or is not a **direct message**
+   (public channel messages are never answered). The trigger rules decide whether it is a *question*, a *command* (`?help`, `?more`, `?stats`, `?ping`) or noise.
 2. **Rate limit and queue.** Each node gets a number of questions per time window. A question inside the cooldown is
    not dropped: the limiter *reserves the node's next free slot* (a burst lines up one window apart), the question is
    held until then, and an acknowledgment says when to expect the answer. A per-node cap and a global cap bound the
@@ -27,8 +27,9 @@ In words:
 4. **LLM.** The top passages and the question are sent to the model with a strict system prompt: answer only from
    the context, no markdown, "not found" if unsupported.
 5. **Byte fitter.** The answer is cleaned and forced to fit the byte limit (see below).
-6. **Sender.** The reply goes to the original sender (a direct message, or a channel message prefixed `@Name`)
-   with the configured hop limit, with a pause between parts.
+6. **Sender.** The reply goes to the original sender as a direct message, with the configured hop limit and a pause between parts.
+   Nothing in this path can post to a public channel: the parser ignores public messages, the engine refuses to send for one,
+   the radio manager refuses a message with no addressee, and the Meshtastic adapter has no broadcast at all.
 
 If nothing relevant is retrieved (or the model says the context does not answer), the reply depends on how far
 indexing has got. Once every article is searchable (`library_state` is `covered` or `complete`), "no match" is certain,
@@ -99,8 +100,7 @@ The 233-byte Meshtastic limit is a hard physical constraint, so fitting is built
 regardless of what the model does.
 
 ```
-  budget = limit - len("@Name ")            (channel replies only)
-         - len(" ?more")                    (only when parts wait for ?more)
+  budget = limit - len(" ?more")                    (only when parts wait for ?more)
   total  = parts_allowed * (budget - len("(3/3) "))     (1 part: just budget)
 
   1. Prompt the LLM: "at most <budget> bytes; only if essential, up to <total>"

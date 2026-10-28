@@ -89,13 +89,13 @@ class Engine:
     async def submit(self, packet: Packet) -> str:
         """Filter, rate-limit and enqueue. Returns the outcome (handy for tests/UI)."""
         s = self._settings()
+        if not packet.is_dm:
+            return "ignored"  # LoRaPedia never answers in a public channel; only a direct message can be a question
         if packet.sender_id == self.radio.node_id or packet.sender_id in s.blocklist:
             return "ignored"
         if s.allowlist and packet.sender_id not in s.allowlist:
             return "ignored"
-        if not packet.is_dm and packet.channel != s.channel_index:
-            return "ignored"  # channel triggers only apply on the configured channel
-        parsed = parse_message(packet.text, packet.is_dm, s.trigger_mode, s.trigger_prefixes)
+        parsed = parse_message(packet.text, packet.is_dm, s.trigger_prefixes)
         if parsed.kind == "ignore":
             return "ignored"
 
@@ -183,12 +183,12 @@ class Engine:
         s = self._settings()
         if job.question is None:
             # Canned replies (help/stats/busy/more) are clamped too: the byte limit is a hard guarantee.
-            room = s.byte_limit - self._reply_prefix_bytes(job.packet)
+            room = s.byte_limit
             await self._send(job.packet, [fitter.truncate_bytes(job.reply or "", room)], s)
             return
 
         started = self._clock()
-        gen = await self.generate(job.question, s, self._reply_prefix_bytes(job.packet))
+        gen = await self.generate(job.question, s)
         parts, chunks, prompt, compressed = gen.parts, gen.chunks, gen.prompt, gen.compressed
 
         await self._send(job.packet, parts, s)
@@ -265,20 +265,13 @@ class Engine:
 
     # ---- sending ------------------------------------------------------------------------
 
-    def _reply_prefix(self, packet: Packet) -> str:
-        return "" if packet.is_dm else f"@{packet.sender_name} "
-
-    def _reply_prefix_bytes(self, packet: Packet) -> int:
-        return fitter.byte_len(self._reply_prefix(packet))
-
     async def _send(self, packet: Packet, parts: list[str], s: Settings) -> None:
-        to = packet.sender_id if packet.is_dm else None
-        if to is None and s.trigger_mode == "dm":
-            # Hard guarantee for direct-message-only mode: nothing is ever posted to a channel,
-            # even if a channel packet somehow reached the worker (e.g. the setting changed while it was queued).
-            log.warning("dropping a public reply: trigger mode is direct-message only")
+        if not packet.is_dm:
+            # The guarantee, second layer (submit() already ignores public messages): a reply is only ever addressed to the person
+            # who asked, so even a public packet that somehow reached the worker gets nothing posted to the channel.
+            log.warning("not replying to a public message: LoRaPedia answers direct messages only")
             return
-        prefix = self._reply_prefix(packet)
+        to = packet.sender_id
         send_now = parts
         if not s.auto_send_parts and len(parts) > 1:
             # Hold the rest for "?more"; hint at it only if the hint fits in the first part.
@@ -288,7 +281,7 @@ class Engine:
             if i:
                 await self._sleep(s.send_delay_s)  # respect LoRa airtime between parts
             radio = self.sim_radio if packet.simulated and self.sim_radio else self.radio
-            await radio.send_text(prefix + part, to, packet.channel, s.hop_limit)
+            await radio.send_text(part, to, packet.channel, s.hop_limit)
 
     async def _publish(self, event: dict) -> None:
         if self._emit:

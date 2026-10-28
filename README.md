@@ -65,14 +65,15 @@ docker compose up -d
 Open **http://localhost:8000**. The first visit starts the setup wizard.
 
 This pulls the signed release images and starts LoRaPedia, an Ollama server, and a small **updater** that keeps LoRaPedia
-current (see [Updates](#updates)). Data lives in Docker volumes and survives restarts. For a USB radio or an NVIDIA GPU, copy
-[docker-compose.override.example.yml](docker-compose.override.example.yml) to `docker-compose.override.yml` and edit it. Moving an
+current (see [Updates](#updates)). Data lives in Docker volumes and survives restarts. **A USB radio needs nothing**: plug in any Meshtastic radio, before or after starting, and it is found (see below). For an NVIDIA GPU,
+copy [docker-compose.override.example.yml](docker-compose.override.example.yml) to `docker-compose.override.yml` and edit it. Moving an
 existing `./run.sh` install? See [docs/MIGRATING.md](docs/MIGRATING.md). Developing instead? `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build`.
 
 **Docker or not?** Docker is the supported, auto-updating path on Linux, Raspberry Pi 5 and Jetson. It has limits: Bluetooth
-radios do not work inside a container; a USB radio's device mapping is fixed when the container starts, so after unplugging it
-(or a radio that resets itself, like the RAK4631) you may need `docker compose restart lorapedia` (a WiFi radio avoids this);
-the GPU needs the NVIDIA Container Toolkit; and Docker Desktop on Windows/macOS cannot pass USB devices through. For those,
+radios do not work inside a container; a USB radio is found automatically (the host's `/dev` is mounted read-only beside the
+container's own and only USB serial ports may be opened; the container starts as root for a moment, with only the two capabilities needed
+to take on the device's group, then runs the app as an unprivileged user: see the comments in [docker-compose.yml](docker-compose.yml)),
+but a radio plugged in later whose group the container has not seen needs `docker compose restart lorapedia` once; the GPU needs the NVIDIA Container Toolkit; and Docker Desktop on Windows/macOS cannot pass USB devices through. For those,
 use option B.
 
 ### Option B: without Docker
@@ -167,11 +168,11 @@ Dedicate a radio to LoRaPedia. Give it a memorable name (e.g. `WIKI`) so people 
 
 ## Using it
 
-Anyone on the mesh can **send a direct message** to the LoRaPedia node with their question. That is the default
-and the quietest option: only the asker sees the reply.
-
-Optionally allow **channel questions**: choose *In a channel, starting with a prefix* on the Radio page, and
-people write `?what is a quasar` or `!wiki quasar`. The reply goes to the channel, starting with `@Name`.
+Anyone on the mesh can **send a direct message** to the LoRaPedia node with their question, and only the asker sees the reply.
+**LoRaPedia answers direct messages only. It never replies in a public channel, and anything said in a channel is ignored.** That is
+not a setting: the rule is enforced at four separate points (the message parser, the engine, the radio manager, and the radio
+adapter, which has no way to broadcast at all), each with its own test, so a wrong setting, an old settings file or a bug in one place
+cannot make the node post publicly. A prefix such as `?what is a quasar` or `!wiki quasar` is optional in a direct message.
 
 | Message | What happens |
 |---|---|
@@ -219,7 +220,7 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 
 | Page | You can change |
 |---|---|
-| **Radio** | Connection (USB / network / Bluetooth / simulator), channel, trigger mode and prefixes, hop limit, **byte limit (50 to 233)**, multi-part and its cap, pause between sends, node block/allow lists |
+| **Radio** | Connection (USB / network / Bluetooth / simulator), trigger prefixes, hop limit, **byte limit (50 to 233)**, multi-part and its cap, pause between sends, node block/allow lists |
 | **Model** | Language and embedding model (install with progress), temperature, max tokens, passages retrieved, system prompt (with *Reset to default*), a "try it" box showing the byte count |
 | **Knowledge** | Wikipedia files, downloads, indexing, a search playground |
 | **Nodes** *(beta)* | Every node the radio has heard: names, hardware, hops, signal, battery, sensors, last position, and a history of each. Search and filter, and add your own label and note to any node |
@@ -310,10 +311,10 @@ model has no tools and cannot run anything, so the worst outcome of a hostile qu
 | Symptom | What to do |
 |---|---|
 | **"No radio found. Is it plugged in?"** | Check the USB cable carries data (try another). Press Retry. Run `ls /dev/ttyACM* /dev/ttyUSB*`: if nothing appears, the computer does not see the radio. Meanwhile the simulator keeps everything usable. |
-| **"Permission denied" on the serial port** | Add your user to the serial group (`sudo usermod -aG dialout $USER`, or `uucp` on Arch) and log out and in. In Docker, set `group_add` as described in docker-compose.yml. |
+| **"Permission denied" on the serial port** | Add your user to the serial group (`sudo usermod -aG dialout $USER`, or `uucp` on Arch) and log out and in. In Docker the container learns the device's group when it starts: run `docker compose restart lorapedia`. |
 | **"The serial port is busy"** | Another program has it: the Meshtastic app or CLI, or ModemManager on Linux. Close them, or stop ModemManager (`sudo systemctl stop ModemManager`). |
 | **"Several radios found"** | Choose *USB, choose the port* and pick one. |
-| **Radio connects but nobody gets answers** | Check the trigger mode: the default needs a **direct message** to this node. In channel mode the message must start with the prefix and be on the configured channel. Look at the Live Feed to see whether the question arrived. |
+| **Radio connects but nobody gets answers** | The node answers **direct messages only**: send the question to this node directly, not in a channel. Look at the Live Feed to see whether the question arrived. |
 | **"LLM not ready" / "Cannot reach Ollama"** | Start Ollama (`ollama serve`, or the `ollama` container). In Docker the address is `http://ollama:11434`. See the Model page. |
 | **"Model … is not installed"** | Install it from the Model page, or `ollama pull <name>`. |
 | **Indexing fails: embedding model not installed** | Install `nomic-embed-text` on the Model page, or turn on *Keyword-only search* there to index without one. |

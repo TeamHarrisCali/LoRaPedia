@@ -5,6 +5,11 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.2.0-beta.2] - 2026-10-28
+
+A test version for the beta channel. It adds nothing of its own beyond [0.2.0-beta.1] and brings in everything released as [0.1.8]
+(below): a USB radio is found automatically in Docker, and LoRaPedia answers direct messages only, by construction.
+
 ## [0.2.0-beta.1] - 2026-10-28
 
 A test version for the beta channel (Settings → Updates → Release channel → Beta). Stable installs never receive it.
@@ -16,6 +21,25 @@ A test version for the beta channel (Settings → Updates → Release channel �
   **Nodes** page lists them with search and filters, shows each node's history, and lets you add your own label and note.
   **Settings → Mesh data** turns recording off and sets how long history is kept (30 days by default). A made-up mesh can be loaded to
   try the page without a radio. Not yet verified on a real radio: parsing is tested against the library's packet shapes with fakes.
+
+## [0.1.8] - 2026-10-28
+
+### Changed
+- **LoRaPedia can no longer reply in a public channel, by construction.** Direct messages only was already the default; it is now the
+  only behaviour, not a setting. The "In a channel" and "Both" trigger modes and the channel selector are gone from the Radio page, and
+  an older settings file that asks for them is ignored. The rule is enforced in four places, each with its own test that fails if that
+  place is weakened: the message parser (a public message is never a question or command), the engine (it refuses to send for a public
+  packet), the radio manager (a message with no addressee is refused) and the Meshtastic adapter (it has no way to broadcast).
+
+### Changed
+- **A USB radio is found automatically in Docker, whatever it is.** No device path or group number to look up, nothing to put in an
+  override file: plug any Meshtastic radio into USB, before or after starting, and it is found again after a reset or a replug
+  (even when it returns under another number). The compose file mounts the host's `/dev` read-only at `/hostdev`, allows only USB
+  serial ports to be opened, and starts the container as root with just SETUID and SETGID; `docker/entrypoint.sh` reads the groups of
+  the serial devices, becomes the unprivileged user (uid 10001) with those groups, drops every capability, and only then runs the
+  app. The app never runs as root. A radio plugged in later whose group was not seen at start needs `docker compose restart
+  lorapedia` once. **Existing installs get this by fetching the new `docker-compose.yml`** (the image alone, with an older compose
+  file, runs as before). Update the image first (Settings → Updates), then use the new compose file: this compose file names the entrypoint, so an older image fails to start instead of silently running as root. Untested: rootless Docker and Podman.
 
 ## [0.1.7] - 2026-10-28
 

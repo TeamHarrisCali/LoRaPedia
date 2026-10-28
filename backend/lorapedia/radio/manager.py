@@ -54,6 +54,9 @@ class RadioManager:
         return self._current.node_id
 
     async def send_text(self, text: str, to: str | None, channel: int, hop_limit: int) -> None:
+        """What the engine sends through. A reply always has an addressee: nothing here can post to a public channel."""
+        if to is None:
+            raise RadioError("LoRaPedia never posts to a public channel: a reply goes only to the person who asked.")
         await self._current.send_text(text, to, channel, hop_limit)
 
     # ---- lifecycle ----------------------------------------------------------------------

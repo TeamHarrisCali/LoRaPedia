@@ -66,29 +66,40 @@ async def test_sources_are_unique_even_when_several_chunks_share_an_article():
     assert eng.store.recent_queries(1)[0]["sources"] == ["Quasar", "Black hole"]
 
 
-async def test_dm_only_mode_never_posts_publicly_even_if_a_channel_job_reaches_the_worker():
+async def test_a_public_message_is_never_answered():
+    eng = make(Settings(send_delay_s=0))
+    for text in ("?what is a quasar", "!wiki quasar", "what is a quasar", "?help", "?ping"):
+        assert await eng.submit(pkt(text, dm=False)) == "ignored"
+    await drain(eng)
+    assert eng.radio.sent == [] and eng.queue.empty()
+
+
+async def test_even_a_public_packet_that_reaches_the_worker_posts_nothing():
     from lorapedia.engine import Job
-    eng = make(Settings(trigger_mode="dm", send_delay_s=0))
-    # Bypass submit()'s filtering: e.g. the mode was switched to dm while this job sat in the queue.
+    eng = make(Settings(send_delay_s=0))
+    # Bypass submit()'s filtering, as if something had queued it directly.
     await eng.process(Job(pkt("?what is a quasar", dm=False), question="what is a quasar"))
     await eng.process(Job(pkt("?help", dm=False), reply="Ask me a question."))
     assert eng.radio.sent == []
 
 
-async def test_anyone_can_dm_in_dm_mode_and_gets_a_direct_reply():
-    eng = make(Settings(trigger_mode="dm", send_delay_s=0))
+async def test_an_old_settings_file_that_asks_for_channel_replies_is_ignored():
+    s = Settings.model_validate_json('{"trigger_mode": "channel", "channel_index": 2, "send_delay_s": 0}')
+    assert not hasattr(s, "trigger_mode") and not hasattr(s, "channel_index")
+    eng = make(s)
+    assert await eng.submit(pkt("?what is photosynthesis", dm=False)) == "ignored"
+    await eng.submit(pkt("?what is photosynthesis"))
+    await drain(eng)
+    (sent,) = eng.radio.sent
+    assert sent.to == "!a1b2"  # the DM is answered, to the person who asked, and nothing else is sent
+
+
+async def test_anyone_can_dm_and_gets_a_direct_reply():
+    eng = make(Settings(send_delay_s=0))
     for sender in ("!aaaa0001", "!bbbb0002"):
         await eng.submit(pkt("what is a quasar?", sender=sender))
     await drain(eng)
     assert [m.to for m in eng.radio.sent] == ["!aaaa0001", "!bbbb0002"]  # direct, never broadcast (None)
-
-
-async def test_channel_reply_is_prefixed_and_broadcast():
-    eng = make(Settings(trigger_mode="channel", send_delay_s=0))
-    await eng.submit(pkt("?what is photosynthesis", dm=False))
-    await drain(eng)
-    (sent,) = eng.radio.sent
-    assert sent.to is None and sent.text.startswith("@BOB ") and byte_len(sent.text) <= 200
 
 
 async def test_ignores_own_blocked_and_unlisted_nodes():

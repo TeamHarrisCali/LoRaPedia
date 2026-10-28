@@ -23,6 +23,23 @@ services:
     <<: *hardening
     read_only: true            # the image's files cannot be changed from inside; /data and /tmp are the writable places
     tmpfs: ["/tmp"]
+    # USB RADIO, AUTOMATIC. Any Meshtastic radio plugged into USB is found, whatever its brand, whichever of these ports it uses, and
+    # whenever it is plugged in (or comes back after a reset): nothing to edit here. How, and what it costs:
+    #   * /dev is mounted READ-ONLY beside the container's own at /hostdev, and the two device rules below allow opening only USB
+    #     serial ports (ttyACM*, ttyUSB*). Every other device file is visible by name but cannot be opened.
+    #   * The device file's GROUP differs from computer to computer, so the container STARTS AS ROOT with just SETUID and SETGID
+    #     (every other capability dropped). docker/entrypoint.sh reads the groups of the serial devices, then becomes the unprivileged
+    #     user (uid 10001) with those groups, drops every capability, and only then starts the app. The app never runs as root.
+    #   * A radio plugged in LATER whose group was not seen at start needs `docker compose restart lorapedia` once.
+    # Not wanted? Delete `user`, `cap_add`, `device_cgroup_rules`, the /dev line and LORAPEDIA_DEVICE_DIR (a WiFi radio needs none).
+    user: "0:0"
+    # Named explicitly so that an IMAGE WITHOUT the entrypoint (a release before this one) fails to start instead of silently running
+    # the app as root. Update the image first (Settings -> Updates), then use this file.
+    entrypoint: ["lorapedia-entrypoint"]
+    cap_add: [SETUID, SETGID]
+    device_cgroup_rules:
+      - "c 166:* rmw"          # USB serial, ACM class: boards with native USB (RAK4631, T-Echo, Heltec V3, T-Beam Supreme...)
+      - "c 188:* rmw"          # USB serial, USB-to-serial chips (CP210x, CH340, FTDI): T-Beam, T-LoRa, Heltec V2...
     depends_on:
       - ollama
     ports:
@@ -32,16 +49,17 @@ services:
     volumes:
       - lorapedia-data:/data                       # databases, Wikipedia files, settings
       - updater-state:/run/lorapedia-updater:ro    # the token the app uses to ask the updater (read-only)
+      - /dev:/hostdev:ro                           # the host's device files, beside the container's own (see "USB RADIO" above)
     environment:
+      LORAPEDIA_DEVICE_DIR: /hostdev
       LORAPEDIA_OLLAMA_URL: http://ollama:11434
       LORAPEDIA_UPDATER_URL: http://updater:8081
       LORAPEDIA_UPDATER_TOKEN_FILE: /run/lorapedia-updater/token
 
-    # --- USB radio, GPU, a different port: put them in docker-compose.override.yml -----------------------------------
+    # --- A GPU, a different port: put them in docker-compose.override.yml -------------------------------------------------
     # Copy docker-compose.override.example.yml to docker-compose.override.yml and edit it. Compose loads that file by itself and the
-    # updater includes it when it replaces this container, so your radio mapping survives updates. It is ignored by git.
-    # Some radios (e.g. RAK4631) re-appear when the serial port is closed, so after unplugging one or a radio reset you may need
-    # `docker compose restart lorapedia`. A WiFi/network radio avoids this. Bluetooth is not supported inside Docker: use ./run.sh.
+    # updater includes it when it replaces this container, so it survives updates. It is ignored by git.
+    # Bluetooth radios are not supported inside Docker: use ./run.sh. A WiFi/network radio needs none of the above.
 
   updater:
     image: ${LORAPEDIA_UPDATER_IMAGE:-ghcr.io/teamharriscali/lorapedia-updater:latest}

@@ -33,7 +33,7 @@ This copies `./data` into the volume Docker Compose will use, then fixes the two
 `localhost` is the container itself; a deliberately remote Ollama is left alone). It refuses if a server is still running on the
 source or if the volume already holds data. `--project NAME` puts it under another Compose project name (handy for a trial).
 
-## 2. Add the GPU and the radio (a `docker-compose.override.yml`)
+## 2. Add the GPU (a `docker-compose.override.yml`)
 
 Machine-specific settings go in `docker-compose.override.yml`, not in `docker-compose.yml`. Compose loads it by itself, **the updater
 includes it when it replaces the app container (so your radio mapping survives automatic updates)**, and git ignores it.
@@ -42,22 +42,10 @@ includes it when it replaces the app container (so your radio mapping survives a
 cp docker-compose.override.example.yml docker-compose.override.yml
 ```
 
-Then edit it. For the **GPU**, keep the `ollama` `deploy:` block (it needs the NVIDIA Container Toolkit above). For a **USB radio**,
-map it by its stable name and give the container its group:
+Then edit it. For the **GPU**, keep the `ollama` `deploy:` block (it needs the NVIDIA Container Toolkit above).
 
-```bash
-ls /dev/serial/by-id/                    # e.g. usb-Adafruit_WisCore_RAK4631_Board_XXXX-if00
-stat -c %g /dev/ttyACM0                  # the numeric group of the device (uucp on Arch, dialout on Debian/Ubuntu)
-```
-
-```yaml
-services:
-  lorapedia:
-    devices:
-      - /dev/serial/by-id/usb-...:/dev/ttyACM0
-    group_add:
-      - "984"
-```
+**The USB radio needs nothing here.** The compose file finds any Meshtastic radio plugged into USB by itself, whatever its brand or
+group (`dialout`, `uucp`, `plugdev`...), so there is no device path or group number to look up. Plug it in before or after starting.
 
 The shipped compose file already sets `OLLAMA_CONTEXT_LENGTH=4096` (Ollama's default context made `llama3.2:3b` occupy about 4 GB of
 GPU memory; 4096 needs about 2.4 GB, so both models fit a 4 GB card) and keeps the GPU kernel cache in the models volume.
@@ -65,7 +53,7 @@ GPU memory; 4096 needs about 2.4 GB, so both models fit a 4 GB card) and keeps t
 **First start on an NVIDIA GPU is slow, once:** the first answer takes about two minutes while the GPU compiles its kernels, then
 about five seconds, including after the container is recreated (measured on an RTX 3050 Ti: 127 s, then 5 s).
 
-No radio yet? Skip the `devices:` block: the node starts in simulator mode, and you can add the radio later.
+No radio yet? The node starts in simulator mode and picks the radio up when you plug it in.
 
 ## 3. Start it
 
@@ -92,7 +80,8 @@ docker run --rm -v lorapedia_lorapedia-data:/data -v "$PWD":/backup python:3.12-
 
 ## Things to know
 
-- A radio that re-appears when its serial port is closed (the RAK4631 does) can leave the container holding a stale device
-  mapping after an unplug or reset; `docker compose restart lorapedia` fixes it. A WiFi/network radio avoids the issue.
+- A radio that re-appears when its serial port is closed or after a reset (the RAK4631 does) is found again by itself, because the
+  container scans the host's device files rather than holding one fixed path. If a radio was plugged in AFTER the container started
+  and its device file has a group the container has not seen, run `docker compose restart lorapedia` once.
 - Bluetooth radios do not work inside Docker.
 - Only one Ollama should use the GPU at a time. If you also run Ollama on the host, stop its models (or the service) first.

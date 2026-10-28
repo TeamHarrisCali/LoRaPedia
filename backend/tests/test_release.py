@@ -167,7 +167,7 @@ def compose_problems(text: str) -> list[str]:
     for name, s in svc.items():
         if name in ("lorapedia", "updater") and s.get("cap_drop") != ["ALL"]:
             problems.append(f"{name} must drop all capabilities")
-        allowed = {"updater": {"DAC_OVERRIDE", "CHOWN"}}.get(name, set())  # the only capabilities added back, and only here
+        allowed = {"updater": {"DAC_OVERRIDE", "CHOWN"}, "lorapedia": {"SETUID", "SETGID"}}.get(name, set())  # the only ones added back, only here
         if set(s.get("cap_add", [])) - allowed:
             problems.append(f"{name} adds capabilities it should not: {sorted(set(s['cap_add']) - allowed)}")
         if name in ("lorapedia", "updater") and not s.get("read_only"):
@@ -175,6 +175,19 @@ def compose_problems(text: str) -> list[str]:
         socket = any("docker.sock" in str(v) for v in s.get("volumes", []))
         if socket and name != "updater":
             problems.append(f"{name} must not hold the Docker socket")
+    app = svc["lorapedia"]
+    if app.get("privileged"):
+        problems.append("the app must not be privileged")
+    if app.get("user") in ("0", "0:0", "root") and app.get("entrypoint") != ["lorapedia-entrypoint"]:
+        problems.append("the app may start as root only through lorapedia-entrypoint, so an image without it fails instead of running as root")
+    if app.get("user") in ("0", "0:0", "root") and set(app.get("cap_add", [])) != {"SETUID", "SETGID"}:
+        problems.append("the app may start as root only to change identity (SETUID and SETGID, nothing else)")
+    for rule in app.get("device_cgroup_rules", []):
+        if rule not in ("c 166:* rmw", "c 188:* rmw"):
+            problems.append(f"the app may open USB serial ports (166, 188) and no other device: {rule}")
+    for v in app.get("volumes", []):
+        if str(v).startswith("/dev") and str(v) != "/dev:/hostdev:ro":
+            problems.append(f"the host's /dev may only be mounted read-only at /hostdev, never over the container's own: {v}")
     if "docker.sock" not in str(svc["updater"].get("volumes")):
         problems.append("the updater needs the socket")
     if svc["updater"].get("ports"):
@@ -225,7 +238,8 @@ def test_the_override_example_is_valid_inert_and_covers_the_machine_specific_set
     base = yaml.safe_load(read("docker-compose.yml"))["services"]
     ex = yaml.safe_load(read("docker-compose.override.example.yml"))["services"]
     assert set(ex) <= set(base)  # it can only configure services that exist
-    assert "devices" in ex["lorapedia"] and "group_add" in ex["lorapedia"] and "deploy" in ex["ollama"]
+    assert "deploy" in ex["ollama"]  # the GPU
+    assert "lorapedia" not in ex  # a USB radio is automatic: nothing to map by hand
     assert "docker-compose.override.yml" in read(".gitignore").splitlines()  # the real one is never committed
     assert "docker-compose.override.example.yml" not in read(".gitignore")  # but the example is shipped
 
@@ -304,3 +318,23 @@ def test_the_tag_name_still_reaches_the_branch_check_only_through_an_environment
     wf = yaml.safe_load(read(".github", "workflows", "release.yml"))
     step = next(s for s in wf["jobs"]["verify"]["steps"] if "merge-base" in s.get("run", ""))
     assert "github.ref_name" not in step["run"] and "${{" not in step["run"] and step["env"]["TAG"] == "${{ github.ref_name }}"
+
+
+def test_the_usb_radio_rules_each_fire_on_a_broken_copy():
+    good = read("docker-compose.yml")
+    assert any("privileged" in p for p in compose_problems(good.replace("    user: \"0:0\"", "    privileged: true\n    user: \"0:0\"", 1)))
+    assert any("identity" in p for p in compose_problems(good.replace("cap_add: [SETUID, SETGID]", "cap_add: [SETUID, SETGID, SYS_ADMIN]", 1)))
+    assert any("fails instead of running as root" in p for p in compose_problems(good.replace('    entrypoint: ["lorapedia-entrypoint"]\n', "", 1)))
+    assert any("USB serial" in p for p in compose_problems(good.replace('"c 188:* rmw"', '"a *:* rwm"', 1)))
+    assert any("read-only at /hostdev" in p for p in compose_problems(good.replace("/dev:/hostdev:ro ", "/dev:/dev ", 1)))
+    assert any("read-only at /hostdev" in p for p in compose_problems(good.replace("/dev:/hostdev:ro ", "/dev:/hostdev ", 1)))
+
+
+def test_the_image_still_defaults_to_the_unprivileged_user_and_uses_the_entrypoint():
+    """The compose file starts the container as root only so the entrypoint can pick up the radio's group; run without it (an older
+    compose file, docker run) the image must still be the unprivileged user, and the entrypoint must still be what starts the app."""
+    df = read("docker", "Dockerfile")
+    assert "USER 10001:10001" in df and 'ENTRYPOINT ["lorapedia-entrypoint"]' in df and "docker/entrypoint.sh" in df
+    assert (ROOT / "docker" / "entrypoint.sh").stat().st_mode & 0o111  # executable in the repository, so COPY keeps it so
+    script = read("docker", "entrypoint.sh")
+    assert "--no-new-privs" in script and "--bounding-set=-all" in script and 'APP_UID=10001' in script
