@@ -5,6 +5,8 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-28
+
 ### Fixed
 - **Updating to a beta with an old updater container looked like nothing happened.** An updater from before the beta channel ignores
   the request and answers "Already on the newest release". The Updates card now says the updater is too old and shows the two
