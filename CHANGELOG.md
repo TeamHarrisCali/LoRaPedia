@@ -5,6 +5,8 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-28
+
 ### Changed
 - **LoRaPedia can no longer reply in a public channel, by construction.** Direct messages only was already the default; it is now the
   only behaviour, not a setting. The "In a channel" and "Both" trigger modes and the channel selector are gone from the Radio page, and
