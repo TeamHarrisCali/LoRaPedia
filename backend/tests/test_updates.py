@@ -161,8 +161,10 @@ async def test_a_check_saves_the_release_and_reports_availability(tmp_path):
 
 
 async def test_the_same_or_an_older_release_is_not_an_update(tmp_path):
-    for tag in ("v" + __version__, "v0.0.1"):
-        svc, _ = service(tmp_path, gh(release(tag)))
+    # (a beta build is never "the same" as a stable tag, so on a beta build only the older one applies on the stable channel)
+    for tag in [t for t in ("v" + __version__, "v0.0.1") if U.valid_tag(t)]:
+        (tmp_path / tag).mkdir()
+        svc, _ = service(tmp_path / tag, gh(release(tag)))
         await svc.check()
         st = await svc.status()
         assert st["latest"]["tag"] == tag and st["update_available"] is False and st["can_apply"] is False
@@ -547,3 +549,12 @@ def test_the_channel_defaults_to_stable_and_an_older_saved_settings_file_still_l
     assert Settings.model_validate_json('{"byte_limit": 150}').update_channel == "stable"
     with pytest.raises(ValueError):
         Settings(update_channel="nightly")
+
+
+@pytest.mark.parametrize("newest,available", [("v0.2.0-beta.3", False), ("v0.2.0-beta.2", False), ("v0.2.0-beta.4", True), ("v0.2.0", True), ("v0.1.9", False)])
+async def test_a_node_running_a_beta_is_offered_only_what_is_newer_than_that_beta(tmp_path, monkeypatch, newest, available):
+    monkeypatch.setattr(U, "__version__", "0.2.0-beta.3")
+    svc, _ = service(tmp_path, ghb([rel(newest)]), settings=beta_settings())
+    await svc.check()
+    st = await svc.status()
+    assert st["latest"]["tag"] == newest and st["update_available"] is available

@@ -5,6 +5,10 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.2.0-beta.1] - 2026-10-28
+
+A test version for the beta channel (Settings → Updates → Release channel → Beta). Stable installs never receive it.
+
 ### Added (beta: the MeshtasticLLM merge, phase 1)
 - **The mesh database and a Nodes page.** The radio adapter now listens to every packet (not only text) and LoRaPedia remembers each
   node it hears in a separate `mesh.db`: name, hardware, role, hops (measured, not just reported), signal, battery and sensor
