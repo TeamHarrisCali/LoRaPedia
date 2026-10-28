@@ -36,6 +36,7 @@ services:
     # Named explicitly so that an IMAGE WITHOUT the entrypoint (a release before this one) fails to start instead of silently running
     # the app as root. Update the image first (Settings -> Updates), then use this file.
     entrypoint: ["lorapedia-entrypoint"]
+    command: ["lorapedia"]       # setting `entrypoint` clears the image's own CMD, so the command has to be given again here
     cap_add: [SETUID, SETGID]
     device_cgroup_rules:
       - "c 166:* rmw"          # USB serial, ACM class: boards with native USB (RAK4631, T-Echo, Heltec V3, T-Beam Supreme...)

@@ -178,6 +178,8 @@ def compose_problems(text: str) -> list[str]:
     app = svc["lorapedia"]
     if app.get("privileged"):
         problems.append("the app must not be privileged")
+    if app.get("entrypoint") and not app.get("command"):
+        problems.append("the app sets an entrypoint without a command: that clears the image's own CMD and the container crash-loops")
     if app.get("user") in ("0", "0:0", "root") and app.get("entrypoint") != ["lorapedia-entrypoint"]:
         problems.append("the app may start as root only through lorapedia-entrypoint, so an image without it fails instead of running as root")
     if app.get("user") in ("0", "0:0", "root") and set(app.get("cap_add", [])) != {"SETUID", "SETGID"}:
@@ -324,6 +326,7 @@ def test_the_usb_radio_rules_each_fire_on_a_broken_copy():
     good = read("docker-compose.yml")
     assert any("privileged" in p for p in compose_problems(good.replace("    user: \"0:0\"", "    privileged: true\n    user: \"0:0\"", 1)))
     assert any("identity" in p for p in compose_problems(good.replace("cap_add: [SETUID, SETGID]", "cap_add: [SETUID, SETGID, SYS_ADMIN]", 1)))
+    assert any("crash-loops" in p for p in compose_problems(good.replace('    command: ["lorapedia"]', "    #", 1)))  # the v0.1.8 bug
     assert any("fails instead of running as root" in p for p in compose_problems(good.replace('    entrypoint: ["lorapedia-entrypoint"]\n', "", 1)))
     assert any("USB serial" in p for p in compose_problems(good.replace('"c 188:* rmw"', '"a *:* rwm"', 1)))
     assert any("read-only at /hostdev" in p for p in compose_problems(good.replace("/dev:/hostdev:ro ", "/dev:/dev ", 1)))
@@ -338,3 +341,16 @@ def test_the_image_still_defaults_to_the_unprivileged_user_and_uses_the_entrypoi
     assert (ROOT / "docker" / "entrypoint.sh").stat().st_mode & 0o111  # executable in the repository, so COPY keeps it so
     script = read("docker", "entrypoint.sh")
     assert "--no-new-privs" in script and "--bounding-set=-all" in script and 'APP_UID=10001' in script
+
+
+def test_the_compose_command_is_what_the_image_would_have_run():
+    """Setting `entrypoint` in compose replaces the image's CMD with nothing, so the command is repeated there. It must not drift
+    from the Dockerfile's, or the compose file would start something other than the app."""
+    cmd = re.search(r'^CMD (\[.*\])$', read("docker", "Dockerfile"), re.M).group(1)
+    assert yaml.safe_load(read("docker-compose.yml"))["services"]["lorapedia"]["command"] == yaml.safe_load(cmd)
+
+
+def test_the_ci_job_runs_the_compose_smoke_test():
+    wf = read(".github", "workflows", "tests.yml")
+    assert "scripts/compose_smoke.sh lorapedia-ci" in wf
+    assert (ROOT / "scripts" / "compose_smoke.sh").stat().st_mode & 0o111
