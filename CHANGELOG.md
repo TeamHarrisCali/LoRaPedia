@@ -5,6 +5,10 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.2.0-beta.7] - 2026-10-28
+
+A test version for the beta channel: the MeshtasticLLM merge, phase 4.
+
 ### Added (beta: the MeshtasticLLM merge, phase 4: Mesh AI)
 - **Questions about the mesh.** "How many nodes are around?", "which node has the lowest battery?", "nearest router", "who was last heard?",
   "which nodes have gone quiet?", "temperature outside", "best links", "when is the mesh busiest?", "what's been happening on the mesh?",
