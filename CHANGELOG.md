@@ -5,6 +5,8 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-10-28
+
 ### Added
 - **Return to stable** (Settings → Updates, while you run a beta). Updates never go backwards, so a node that tried the beta channel
   could not get back to the stable release without editing files by hand. The button sets the channel to Stable, takes a backup of
