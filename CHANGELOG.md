@@ -5,6 +5,11 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.2.0-beta.3] - 2026-10-28
+
+A test version for the beta channel. **It replaces 0.2.0-beta.2, which could not start with its own compose file** (see [0.1.9] below:
+the compose file crash-looped the app). Nothing else is new; everything in beta.1 and beta.2 is here.
+
 ## [0.2.0-beta.2] - 2026-10-28
 
 A test version for the beta channel. It adds nothing of its own beyond [0.2.0-beta.1] and brings in everything released as [0.1.8]
@@ -21,6 +26,17 @@ A test version for the beta channel (Settings → Updates → Release channel �
   **Nodes** page lists them with search and filters, shows each node's history, and lets you add your own label and note.
   **Settings → Mesh data** turns recording off and sets how long history is kept (30 days by default). A made-up mesh can be loaded to
   try the page without a radio. Not yet verified on a real radio: parsing is tested against the library's packet shapes with fakes.
+
+## [0.1.9] - 2026-10-28
+
+### Fixed
+- **The `docker-compose.yml` of 0.1.8 crash-looped the app.** It named an entrypoint to protect against an old image, and in Compose
+  setting `entrypoint` also clears the image's own command, so the entrypoint ran with nothing to run (`setpriv: No program
+  specified`) and the container restarted for ever. Nothing caught it because CI started the image with `docker run`, not through the
+  compose file. The compose file now repeats the command, a lint rule and a test keep it equal to the Dockerfile's, and CI starts the
+  app from `docker-compose.yml` itself (`scripts/compose_smoke.sh`): it must become healthy, run as uid 10001 and hold no
+  capabilities. **If you fetched the compose file of 0.1.8, fetch this one.** Installs that kept an older compose file were not
+  affected: the image alone still runs as before.
 
 ## [0.1.8] - 2026-10-28
 

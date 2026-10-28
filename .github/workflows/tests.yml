@@ -77,6 +77,10 @@ jobs:
           test "$health" = healthy
           test "$(docker exec lorapedia-ci-app id -u)" = 10001
           curl -fsS http://127.0.0.1:18000/api/system/info | grep -q '"version"'
+      - name: The compose file itself starts the app, healthy, unprivileged and with no capabilities
+        # Not the same as `docker run` above: compose sets the user, capabilities, entrypoint, command and device rules the app really
+        # runs with. A compose file that crash-loops the app passed every other check once (v0.1.8).
+        run: scripts/compose_smoke.sh lorapedia-ci
       - name: The updater starts and answers its health probe
         run: |
           set -eu
