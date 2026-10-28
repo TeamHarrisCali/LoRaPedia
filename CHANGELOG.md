@@ -5,6 +5,11 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Fixed
+- **Updating to a beta with an old updater container looked like nothing happened.** An updater from before the beta channel ignores
+  the request and answers "Already on the newest release". The Updates card now says the updater is too old and shows the two
+  commands that fix it (`docker compose pull updater && docker compose up -d updater`).
+
 ## [0.1.6] - 2026-10-28
 
 ### Added

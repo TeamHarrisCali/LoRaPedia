@@ -547,3 +547,57 @@ def test_the_channel_defaults_to_stable_and_an_older_saved_settings_file_still_l
     assert Settings.model_validate_json('{"byte_limit": 150}').update_channel == "stable"
     with pytest.raises(ValueError):
         Settings(update_channel="nightly")
+
+
+def updater_says(status):
+    """An updater that accepts the request and then reports `status` (the updater's own /v1/status document)."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/v1/apply":
+            return httpx.Response(202, json={"state": "checking"})
+        return httpx.Response(200, json=status)
+    return httpx.MockTransport(handler)
+
+
+async def outdated_after_requesting(tmp_path, status, settings=None, release_doc=None):
+    clock = Clock()
+    s = settings or beta_settings()
+    svc, _ = service(tmp_path, ghb([rel("v9.9.9-beta.1")]) if s.update_channel == "beta" else gh(release("v9.9.9")),
+                     updater=updater_says({**status, "updated": clock.t + 1}), settings=s, clock=clock)
+    await svc.check()
+    await svc.apply()
+    return (await svc.status())["updater_outdated"]
+
+
+OLD = {"state": "idle", "message": "Already on the newest release (0.1.6).", "current": "0.1.6", "target": "0.1.6"}
+
+
+async def test_an_updater_that_answers_a_beta_request_as_if_only_stable_existed_is_called_out(tmp_path):
+    """What an updater from before the beta channel does: it ignores "beta" and reports being up to date. The page must say so
+    instead of showing a harmless-looking "Already on the newest release"."""
+    assert await outdated_after_requesting(tmp_path, OLD) is True
+
+
+@pytest.mark.parametrize("status", [
+    {"state": "idle", "message": "Already on the newest release", "current": "9.9.9-beta.1", "target": "9.9.9-beta.1"},  # it did consider the beta
+    {"state": "pulling", "message": "Downloading", "target": "9.9.9-beta.1"}, {"state": "failed", "message": "x", "target": "0.1.6"},
+    {"state": "checking", "message": "", "target": None}, {"state": "idle", "message": "", "target": None}])
+async def test_a_current_updater_working_on_or_failing_the_beta_is_not_called_outdated(tmp_path, status):
+    assert await outdated_after_requesting(tmp_path, status) is False
+
+
+async def test_the_stable_channel_never_blames_the_updater(tmp_path):
+    assert await outdated_after_requesting(tmp_path, OLD, settings=Settings()) is False
+
+
+async def test_an_idle_report_from_before_the_request_is_not_taken_for_an_answer_to_it(tmp_path):
+    clock = Clock()
+    svc, _ = service(tmp_path, ghb([rel("v9.9.9-beta.1")]), updater=updater_says({**OLD, "updated": clock.t - 3600}), settings=beta_settings(), clock=clock)
+    await svc.check()
+    await svc.apply()
+    assert (await svc.status())["updater_outdated"] is False
+
+
+async def test_no_request_no_blame(tmp_path):
+    svc, _ = service(tmp_path, ghb([rel("v9.9.9-beta.1")]), updater=updater_says({**OLD, "updated": 5_000_000.0}), settings=beta_settings())
+    await svc.check()
+    assert (await svc.status())["updater_outdated"] is False
