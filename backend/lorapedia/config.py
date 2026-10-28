@@ -42,6 +42,11 @@ class Settings(BaseModel):
     temperature_unit: Literal["C", "F"] = "C"
     distance_unit: Literal["km", "mi"] = "km"
 
+    # Mesh AI. Questions about the mesh itself (nodes nearby, batteries, sensors...) are answered from mesh.db by fixed lookups, not by the model.
+    mesh_questions: bool = True
+    # Follow-up questions: each person's last few exchanges are kept in memory (never on disk) this long after their last question. 0 = off.
+    memory_hours: int = Field(24, ge=0, le=168)
+
     # What the radio hears of the rest of the mesh (nodes, positions, telemetry, signal), kept in mesh.db. Never message content.
     mesh_record: bool = True
     mesh_retention_days: int = Field(30, ge=1, le=365)

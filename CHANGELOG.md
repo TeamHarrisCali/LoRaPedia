@@ -5,6 +5,22 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Added (beta: the MeshtasticLLM merge, phase 4: Mesh AI)
+- **Questions about the mesh.** "How many nodes are around?", "which node has the lowest battery?", "nearest router", "who was last heard?",
+  "which nodes have gone quiet?", "temperature outside", "best links", "when is the mesh busiest?", "what's been happening on the mesh?",
+  "tell me about node …", "battery history for …", "what time is it?" are answered from what the radio has heard. A plain-rule router
+  picks one of a fixed menu of hand-written, read-only lookups; **no language model is involved**, so a node name chosen by a stranger can
+  never act as an instruction, nothing can transmit or change anything, and what is not known is said so instead of guessed. The router
+  needs mesh wording or a node that really exists ("what is the temperature of the sun" still goes to Wikipedia; checked against 1,400
+  generic questions). Replies use a node's own name, never the private label or note you gave it, with control and invisible characters
+  removed. Settings → Mesh AI turns it off.
+- **Follow-up questions.** Each person's last three answered questions are remembered (in memory only: nothing on disk, nothing in a
+  backup, nothing shared between people) so "and its population?" works after "what is the capital of Japan?". Forgotten after 24 hours
+  idle (adjustable, 0 = off), on `?reset` / `?forget`, or at restart. Mesh answers and guesses from the model's memory are never remembered.
+  Questions that depend on the date are given today's date.
+- Live Feed marks mesh answers; the Model page's try-it box answers mesh questions too; Settings → Mesh AI shows how many people are
+  being remembered and can forget them all.
+
 ## [0.2.0-beta.6] - 2026-10-28
 
 A test version for the beta channel: the MeshtasticLLM merge, phase 3.

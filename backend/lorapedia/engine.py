@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
@@ -9,6 +10,8 @@ from typing import Awaitable, Callable
 from . import fitter
 from .config import Settings
 from .llm.base import LLM
+from .memory import ConversationMemory, is_follow_up
+from .meshask import MeshAsker
 from .radio.base import Packet, Radio
 from .ratelimit import RateLimiter
 from .retrieval.base import Retriever
@@ -28,9 +31,10 @@ FALLBACK_SYSTEM = (
     "I don't know. For medical, legal, electrical or other safety-critical questions give only basic general "
     "information and say to ask a professional."
 )
-HELP_TEXT = "Ask me a question by DM. Commands: ?help ?more ?stats ?ping. Answers come from offline Wikipedia."
+HELP_TEXT = "Ask by DM. Offline Wikipedia, or the mesh: nodes nearby, battery, temperature. ?help ?more ?stats ?ping ?reset (forget our chat)"
 MORE_HINT = " ?more"
 CHUNK_CHARS = 700  # per-chunk context cap so small models stay fast
+DATE_WORDS = re.compile(r"\b(?:today|tonight|now|currently|current|this (?:year|month|week)|how old|years? ago|how long (?:ago|until|since)|until|since)\b", re.I)
 
 
 @dataclass
@@ -43,6 +47,7 @@ class Generated:
     fallback: bool = False  # answered from the model's own memory because the library had nothing
     found: bool = True  # the answer came from retrieved Wikipedia text
     sources: list[str] = field(default_factory=list)  # article titles behind it, best first; for the web panel only
+    mesh: bool = False  # answered from the mesh database by a fixed lookup: no model, no library
 
 
 @dataclass
@@ -66,6 +71,7 @@ class Engine:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         library_state: Callable[[], str] = lambda: "none",
+        mesh_ask: MeshAsker | None = None,
     ) -> None:
         # "complete"/"covered": every article is searchable, so "no match" is definitive. "partial": still indexing.
         self._library_state = library_state
@@ -78,6 +84,8 @@ class Engine:
         self.queue: asyncio.Queue[Job] = asyncio.Queue()
         self._more: dict[str, list[str]] = {}  # sender -> parts not yet sent
         self._delayed: set[asyncio.Task] = set()  # questions waiting out their node's cooldown
+        self.mesh_ask = mesh_ask  # questions about the mesh itself, answered without the model
+        self.memory = ConversationMemory(clock)  # each sender's last few answered questions, for follow-ups; RAM only
 
     # ---- intake -------------------------------------------------------------------------
 
@@ -154,6 +162,8 @@ class Engine:
             return HELP_TEXT
         if name == "ping":
             return self._ping_reply(packet)
+        if name == "reset":
+            return "OK, I have forgotten our conversation." if self.memory.forget(packet.sender_id) else "Nothing to forget."
         if name == "stats":
             st = self.store.today_stats()
             return f"{st['queries']} Qs today, avg {st['avg_latency_s']}s, queue {self.pending_count}."
@@ -188,30 +198,43 @@ class Engine:
             return
 
         started = self._clock()
-        gen = await self.generate(job.question, s)
+        gen = await self.generate(job.question, s, sender=job.packet.sender_id)
         parts, chunks, prompt, compressed = gen.parts, gen.chunks, gen.prompt, gen.compressed
 
         await self._send(job.packet, parts, s)
+        if gen.found and not gen.fallback and not gen.mesh:
+            # Only what the library answered: a mesh answer holds strangers' names, a guess is the least reliable thing we say.
+            self.memory.remember(job.packet.sender_id, job.question, gen.raw, s.memory_hours * 3600)
         latency = round(self._clock() - started, 2)
         entry = dict(
             sender_id=job.packet.sender_id, sender_name=job.packet.sender_name, question=job.question,
             parts=parts, byte_limit=s.byte_limit, latency_s=latency, sources=gen.sources,  # unique, best first; none for "not found"
-            debug={"prompt": prompt, "compressed": compressed, "fallback": gen.fallback,
+            debug={"prompt": prompt, "compressed": compressed, "fallback": gen.fallback, "mesh": gen.mesh,
                    "chunks": [{"title": c.title, "text": c.text, "score": c.score} for c in chunks]},
         )
         entry["id"] = self.store.log_query(**entry)
         await self._publish({"type": "query", **entry})
 
-    async def generate(self, question: str, s: Settings, prefix_bytes: int = 0) -> "Generated":
-        """Retrieve, ask the LLM, and fit to the byte budget. Sends nothing (also used by the UI "try it" box)."""
+    async def generate(self, question: str, s: Settings, prefix_bytes: int = 0, sender: str | None = None) -> "Generated":
+        """Retrieve, ask the LLM, and fit to the byte budget. Sends nothing (also used by the UI "try it" box).
+
+        `sender` lets a follow-up lean on that person's earlier questions; a question about the mesh is answered from its database instead."""
         limit = s.byte_limit - prefix_bytes
         max_parts = s.effective_max_parts
         if max_parts > 1 and not s.auto_send_parts:
             limit -= fitter.byte_len(MORE_HINT)  # keep room for the "?more" hint on part 1
         budget = fitter.total_budget(limit, max_parts)
 
-        chunks = await self.retriever.search(question, s.top_k)
-        prompt = self._build_prompt(question, chunks, limit, budget)
+        if self.mesh_ask is not None:
+            asked = await asyncio.to_thread(self.mesh_ask.answer, question)
+            if asked is not None:
+                parts = fitter.fit_answer(asked, limit, max_parts)
+                return Generated(parts, [], "(answered from the mesh database: no model was asked)", False, asked, mesh=True)
+
+        history = self.memory.recall(sender, s.memory_hours * 3600) if sender and is_follow_up(question) else []
+        query = f"{history[-1][0]} {question}" if history else question  # "and its population?" is searched together with what it follows
+        chunks = await self.retriever.search(query, s.top_k)
+        prompt = self._build_prompt(question, chunks, limit, budget, history)
         raw = ""
         compressed = False
         if chunks:
@@ -230,7 +253,7 @@ class Engine:
             state = self._library_state()
             if state in ("complete", "covered") and s.ai_fallback:
                 # Every article is searchable, so "not in any article" is certain: the model may speak from memory, marked as a guess.
-                guess = await self._ai_memory(question, s, limit)  # one message at most: see below
+                guess = await self._ai_memory(query, s, limit)  # one message at most: see below
                 raw = FALLBACK_PREFIX + guess if guess else NOT_FOUND
                 fallback = bool(guess)
             else:
@@ -256,12 +279,17 @@ class Engine:
         refusals = ("i don't know", "i do not know", "not found", "i'm not sure", "i am not sure", "i cannot", "i can't")
         return None if not text or text.lower().startswith(refusals) else text
 
-    def _build_prompt(self, question: str, chunks, limit: int, budget: int) -> str:
+    def _build_prompt(self, question: str, chunks, limit: int, budget: int, history: list[tuple[str, str]] | None = None) -> str:
         ctx = "\n".join(f"[{i}] {c.title}: {c.text[:CHUNK_CHARS]}" for i, c in enumerate(chunks, 1))
         size = f"Answer in at most {limit} bytes."
         if budget > limit:
             size += f" Only if essential, you may use up to {budget} bytes."
-        return f"Context:\n{ctx}\n\nQuestion: {question}\n\n{size}"
+        earlier = ""
+        if history:  # the same person's, never anyone else's
+            earlier = ("Earlier in this conversation (only to tell what words like \"it\" or \"that\" refer to):\n"
+                       + "\n".join(f"Q: {q}\nA: {a}" for q, a in history) + "\n\n")
+        today = f"Today's date: {time.strftime('%A %d %B %Y')}.\n" if DATE_WORDS.search(question) else ""  # a live fact, only for questions that need it
+        return f"Context:\n{ctx}\n\n{earlier}{today}Question: {question}\n\n{size}"
 
     # ---- sending ------------------------------------------------------------------------
 

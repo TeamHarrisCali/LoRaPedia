@@ -33,6 +33,7 @@ export function QueryItem({ q, expandable = false }: { q: QueryRow; expandable?:
         <ByteMeter bytes={bytes} limit={q.byte_limit} className="min-w-48 flex-1" />
         {parts.length > 1 && <Badge tone="amber">{parts.length} parts</Badge>}
         {q.debug?.fallback && <Badge tone="amber">AI memory, unverified</Badge>}
+        {q.debug?.mesh && <Badge tone="teal">from the mesh data</Badge>}
         {q.sources.map((s) => <Badge key={s} tone="teal">{s}</Badge>)}
       </div>
     </>

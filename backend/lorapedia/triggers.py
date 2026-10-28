@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-COMMANDS = ("help", "more", "stats", "ping")
+COMMANDS = ("help", "more", "stats", "ping", "reset", "forget")  # "forget" is the same as "reset"
 
 
 @dataclass(frozen=True)
@@ -25,7 +25,7 @@ def parse_message(text: str, is_dm: bool, prefixes: tuple[str, ...] | list[str] 
     if not body:
         return Parsed("ignore")
     if body.lower() in COMMANDS:
-        return Parsed("command", body.lower())
+        return Parsed("command", "reset" if body.lower() == "forget" else body.lower())
     return Parsed("question", body)
 
 

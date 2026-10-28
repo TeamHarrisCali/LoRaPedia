@@ -180,7 +180,25 @@ cannot make the node post publicly. A prefix such as `?what is a quasar` or `!wi
 | `?help` | Short usage hint |
 | `?more` | Next part of a long answer (when parts are sent on request) |
 | `?stats` | Questions today, average time, queue length |
+| `?reset` (or `?forget`) | Forget the conversation so far (see *Follow-up questions* below) |
 | `?ping` | A range test: how your message reached the node ("heard you directly: SNR 5.5 dB, RSSI -42 dBm", or how many relays it passed through and the signal of the last hop). Needs no model |
+
+**Questions about the mesh** *(beta)*. A question that is about the mesh itself is answered from what the radio has heard, not from
+Wikipedia: "how many nodes are around?", "nearest router", "which node has the lowest battery?", "who was last heard?", "which nodes
+have gone quiet?", "temperature outside", "best links", "when is the mesh busiest?", "what's been happening on the mesh?", "tell me
+about node Ridge", "battery history for Ridge", "what time is it?". It is done by a fixed menu of hand-written lookups, and **no language
+model is involved**: a plain-rule router decides whether a question is about the mesh (it needs mesh wording, or a node that really
+exists, so "what is the temperature of the sun" still goes to Wikipedia), a lookup reads `mesh.db`, and the reply is built from
+numbers it found. So a node name chosen by a stranger can never act as an instruction, nothing here can transmit or change anything,
+and what is not known is said so ("I have not heard any other node yet") instead of guessed. Replies name a node by its own long or
+short name, never by the label or note you gave it. The names and battery levels are what those nodes already broadcast to the whole
+mesh, and no position is ever given out, only distances from this radio when it knows where it is. *Settings → Mesh AI* turns it off.
+
+**Follow-up questions** *(beta)*. Each person's last few answered questions are kept in memory, so "and its population?" works
+after "what is the capital of Japan?". It is in memory only (never on disk, never in a backup), kept separately for each person (nobody's
+conversation is ever shown to the model while answering someone else), forgotten after 24 hours without a question (*Settings → Mesh AI*
+sets the time, 0 turns it off), when they send `?reset`, or when LoRaPedia restarts. Only answers found in Wikipedia are remembered:
+not mesh answers, not guesses. For questions that depend on the date ("how old is…", "today", "since…") the model is also told today's date.
 
 **When Wikipedia has nothing.** If a question matches no article, LoRaPedia does not just say "not found". Once every
 article is searchable (after pass 1), it asks the language model to answer **from its own memory**, and the reply
@@ -229,7 +247,7 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 | **Telemetry** *(beta)* | What nodes broadcast: sensor averages around you (each node counted once), battery, voltage, channel use, temperature, humidity and pressure over time for the nodes you pick, a table of recent readings, and a CSV export |
 | **Trends** *(beta)* | When the mesh is busiest (by hour of the day), a heat map of the last week, and how far packets travel (directly, or through how many relays). Counts only |
 | **Nodes** *(beta)* | Every node the radio has heard: names, hardware, hops, signal, battery, sensors, last position, and a history of each. Search and filter, and add your own label and note to any node |
-| **Settings** | Rate limits, queue length, AI-memory fallback, theme, temperature and distance units, backups, mesh data, CSV export of the log, demo data |
+| **Settings** | Rate limits, queue length, AI-memory fallback, *Mesh AI* (mesh questions on or off, how long follow-ups are remembered), theme, temperature and distance units, backups, mesh data, CSV export of the log, demo data |
 
 Environment variables exist for deployment only: `LORAPEDIA_DATA` (data folder), `LORAPEDIA_HOST`,
 `LORAPEDIA_PORT`, and `LORAPEDIA_OLLAMA_URL` (where Ollama is, used for first-run defaults).

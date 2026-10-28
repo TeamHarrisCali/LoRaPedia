@@ -17,7 +17,7 @@ In words:
 
 1. **Radio listener.** A text message arrives from the radio (or from the UI simulator). It is dropped if it is
    from our own node, a blocked node, a node outside a non-empty allow list, or is not a **direct message**
-   (public channel messages are never answered). The trigger rules decide whether it is a *question*, a *command* (`?help`, `?more`, `?stats`, `?ping`) or noise.
+   (public channel messages are never answered). The trigger rules decide whether it is a *question*, a *command* (`?help`, `?more`, `?stats`, `?ping`, `?reset`) or noise.
 2. **Rate limit and queue.** Each node gets a number of questions per time window. A question inside the cooldown is
    not dropped: the limiter *reserves the node's next free slot* (a burst lines up one window apart), the question is
    held until then, and an acknowledgment says when to expect the answer. A per-node cap and a global cap bound the
@@ -71,6 +71,8 @@ not be indexed yet.
 | `engine.py` | Filters, queue, worker, prompt building, `generate()`, sending. The heart of the flow. |
 | `fitter.py` | Byte counting, text cleaning, truncation, splitting into parts. Pure functions. |
 | `triggers.py` | Question / command / ignore decision for a message. Pure. |
+| `meshask.py` | Questions about the mesh itself: a rule-based router and a fixed menu of read-only lookups over `mesh.db`. No model, no transmitting; replies use only a node's own name, never your label. |
+| `memory.py` | Each sender's last few answered questions for follow-ups. RAM only, per sender, expires after idle time. |
 | `ratelimit.py` | Per-node sliding window. Takes an injectable clock. |
 | `radio/manager.py` | Chooses the real radio or the simulator, reconnects with backoff, forwards received packets. |
 | `radio/meshtastic_radio.py` | The `meshtastic` library over serial/TCP/BLE; bridges its threads to asyncio. |

@@ -25,6 +25,7 @@ from .engine import Engine
 from .index import Index, Indexer
 from .llm.base import MockLLM
 from .mesh import sim as mesh_sim
+from .meshask import MeshAsker
 from .mesh.service import MeshService, distance_km
 from .mesh.observe import csv_cell
 from .mesh.store import METRICS as MESH_METRICS
@@ -141,7 +142,8 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     radio = RadioManager(settings=settings, submit=lambda pkt: engine.submit(pkt), emit=broadcast, on_mesh=mesh.on_packet,
                          **{k: v for k, v in (radio_options or {}).items() if k not in _NON_RADIO_OPTIONS})
     engine = Engine(settings=settings, radio=radio, sim_radio=radio.sim, llm=configured_llm,
-                    retriever=retriever, store=store, emit=broadcast, library_state=index.library_state)
+                    retriever=retriever, store=store, emit=broadcast, library_state=index.library_state,
+                    mesh_ask=MeshAsker(mesh, settings))
     indexer = Indexer(index, current_embedder())
 
     def register_zim(path: Path) -> dict:
@@ -468,8 +470,17 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         except Exception as exc:  # LLMError and anything else: report it, don't crash the page
             raise HTTPException(502, str(exc) or exc.__class__.__name__) from exc
         return {"parts": gen.parts, "bytes": [fitter.byte_len(p) for p in gen.parts], "byte_limit": s.byte_limit,
-                "raw": gen.raw, "compressed": gen.compressed, "fallback": gen.fallback, "latency_s": round(asyncio.get_running_loop().time() - started, 2),
+                "raw": gen.raw, "compressed": gen.compressed, "fallback": gen.fallback, "mesh": gen.mesh, "latency_s": round(asyncio.get_running_loop().time() - started, 2),
                 "sources": gen.sources, "chunks": [{"title": c.title, "section": c.section, "score": c.score} for c in gen.chunks]}
+
+    @app.get("/api/memory")
+    async def memory_status():
+        """How many people the node is remembering a conversation with (never what was said)."""
+        return {"people": len(engine.memory), "hours": settings().memory_hours}
+
+    @app.post("/api/memory/clear")
+    async def memory_clear():
+        return {"cleared": engine.memory.clear()}
 
     @app.get("/api/wizard")
     async def wizard_get():

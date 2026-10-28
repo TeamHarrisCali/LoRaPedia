@@ -15,6 +15,8 @@ export interface Settings {
   temperature_unit: "C" | "F";
   distance_unit: "km" | "mi";
   mesh_record: boolean;
+  mesh_questions: boolean;
+  memory_hours: number;
   mesh_retention_days: number;
   update_channel: "stable" | "beta";
   backup_keep: number;
@@ -141,7 +143,7 @@ export interface QueryRow {
   byte_limit: number;
   latency_s: number;
   sources: string[];
-  debug: { prompt: string; compressed: boolean; chunks: QueryChunk[]; demo?: boolean; fallback?: boolean };
+  debug: { prompt: string; compressed: boolean; chunks: QueryChunk[]; demo?: boolean; fallback?: boolean; mesh?: boolean };
   /** True when it arrived over the WebSocket just now (drives the typewriter reveal). */
   live?: boolean;
 }
@@ -180,7 +182,7 @@ export interface DownloadJob {
 export interface SearchResult { title: string; section: string; text: string; score: number; detail: Record<string, number | null> }
 
 export interface TryResult {
-  parts: string[]; bytes: number[]; byte_limit: number; raw: string; compressed: boolean; fallback?: boolean; latency_s: number;
+  parts: string[]; bytes: number[]; byte_limit: number; raw: string; compressed: boolean; fallback?: boolean; mesh?: boolean; latency_s: number;
   chunks: { title: string; section: string; score: number }[];
 }
 export interface WizardState { done: string[]; skipped: string[]; finished: boolean; step: number }
