@@ -5,6 +5,8 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-28
+
 ### Added
 - **Backups from the web interface** (Settings → Backups): back up now, a daily automatic backup (newest seven kept), download,
   add a backup file from another machine, and restore. A backup holds the settings and the question log (not Wikipedia or its
