@@ -10,10 +10,13 @@ from .base import _STOP, Chunk, DemoRetriever, Retriever
 log = logging.getLogger(__name__)
 _WORD = re.compile(r"[a-z0-9]+")
 
-CANDIDATES = 20  # per signal, before fusion
+CANDIDATES = 60  # per signal, before fusion
 RRF_K = 60
 MIN_VEC_COS = 0.35  # a vector-only hit below this similarity is noise, not evidence
 MAX_PER_ARTICLE = 2  # keep the final context diverse
+FOCUS_BOOST = 0.8  # an article named by the question's subject ("capital of Japan" -> Japan) outranks look-alikes
+_FOCUS = re.compile(r"\b(?:of|in|for|on|about)\s+(?:the\s+|a\s+|an\s+)?([a-z0-9][a-z0-9 .'&-]*?)\s*[?.!]*\s*$")
+_PAREN = re.compile(r"\s*\([^)]*\)")
 
 
 def _stem(word: str) -> str:
@@ -25,6 +28,21 @@ def query_terms(query: str) -> list[str]:
     words = _WORD.findall(query.lower())
     terms = [w for w in words if w not in _STOP and len(w) > 1]
     return terms or words
+
+
+def focus_phrase(query: str) -> str:
+    """The subject of an "attribute of subject" question: "capital of Japan" -> "japan", "largest city in Canada" -> "canada".
+
+    The answer to such a question lives in the article about the subject (or the attribute's own article), but plain ranking
+    prefers whichever pages repeat the words most, for example every Japanese city for "capital of Japan". "" if there is no
+    such shape; then ranking is unchanged.
+    """
+    m = _FOCUS.search(query.strip().lower())
+    return m.group(1).strip() if m else ""
+
+
+def _plain_title(title: str) -> str:
+    return _PAREN.sub("", title).strip().lower()
 
 
 def fts_match(terms: list[str]) -> str:
@@ -60,6 +78,7 @@ class HybridRetriever:
         rows = self.index.get_chunks(list(pool))
 
         qstems = {_stem(t) for t in terms}
+        focus = focus_phrase(query)
         scored: list[tuple[float, int, dict]] = []
         for cid in pool:
             row = rows.get(cid)
@@ -78,6 +97,8 @@ class HybridRetriever:
                 continue
             # Rerank: fused rank (scaled to ~0..2) + title match + query-term coverage + lead bonus.
             score = rrf * RRF_K + 1.0 * title_hit + 0.5 * coverage + (0.15 if row["ord"] == 0 else 0.0)
+            if focus and _plain_title(row["title"]) == focus:
+                score += FOCUS_BOOST
             scored.append((score, cid, {"fts_rank": fts_rank.get(cid), "vec_rank": vec_rank.get(cid),
                                         "vec_cos": round(vec_cos[cid], 3) if cid in vec_cos else None,
                                         "rrf": round(rrf, 4), "title_hit": round(title_hit, 2),

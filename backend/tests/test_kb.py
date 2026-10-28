@@ -7,7 +7,8 @@ from lorapedia.api import create_app
 from lorapedia.embed import EmbedError, HashEmbedder
 from lorapedia.index import Index, IndexMismatch, Indexer
 from lorapedia.llm.base import MockLLM
-from lorapedia.retrieval.hybrid import HybridRetriever, RoutingRetriever
+from lorapedia.retrieval import hybrid
+from lorapedia.retrieval.hybrid import HybridRetriever, RoutingRetriever, focus_phrase
 from lorapedia.sample import ARTICLES, make_sample_zim, render_html
 from lorapedia.zim import ZimReader, chunk_article, extract_sections
 
@@ -326,6 +327,52 @@ async def test_a_single_common_word_match_is_not_evidence(zim_path):
     assert (await r.search("big football team", 4))[0].title.startswith("Football team")
     assert (await r.search("big match", 4))[0].title.startswith("Football team")  # both terms present in the text
     assert (await r.search("quasar", 4))[0].title == "Quasar"  # single-term queries are unaffected
+
+
+@pytest.mark.parametrize("query,focus", [
+    ("capital of Japan", "japan"), ("what is the capital of Japan?", "japan"), ("largest city in Canada", "canada"),
+    ("capital of the United States", "united states"), ("who is the president of France", "france"),
+    ("what is the history of the Roman Empire", "roman empire"), ("who wrote Hamlet", ""), ("how big is Antarctica", ""), ("", ""),
+])
+def test_focus_phrase_is_the_subject_of_an_attribute_question(query, focus):
+    assert focus_phrase(query) == focus
+
+
+async def japan_like_index(zim_path):
+    """Many look-alike pages that repeat the question's words (every Japanese city is "the capital of" something in Japan),
+    and one article about the subject whose lead holds the answer."""
+    index, indexer = fresh(zim_path)
+    await indexer.run("sample.zim")
+    emb = indexer.embedder
+    rows = [(900 + i, f"Cityville {i}", "", 0, f"Cityville {i} is the capital and largest city of Region {i} Prefecture in Japan. "
+             "It is a capital city of Japan's prefecture, and a capital of industry.", (await emb.embed(["capital of japan"]))[0])
+            for i in range(8)]
+    # Plenty of pages near the question in vector space but without its words, so the subject article ranks only by keywords.
+    rows += [(1000 + i, f"Town {i}", "", 0, f"Town {i} has a market and a school.", (await emb.embed(["capital of japan town market"]))[0])
+             for i in range(70)]
+    rows.append((950, "Japan", "", 0, "Japan is an island country in East Asia, located in the Pacific Ocean off the coast of the Asian mainland. Its mountainous "
+                 "terrain, volcanoes, earthquakes and four main islands shape where its people live, farm, fish and build. Its capital is Tokyo.", (await emb.embed(["island country"]))[0]))
+    index.add_batch("sample.zim", rows, last_entry=999, articles=len(rows))
+    return HybridRetriever(index, emb)
+
+
+async def test_the_article_about_the_subject_beats_look_alike_pages(zim_path):
+    """"capital of Japan" used to return only Japanese cities, so the model never saw the page that names the capital."""
+    r = await japan_like_index(zim_path)
+    assert (await r.search("capital of Japan", 4))[0].title == "Japan"
+    assert (await r.search("what is the capital of Japan?", 4))[0].title == "Japan"
+
+
+async def test_without_the_boost_the_look_alikes_win(zim_path, monkeypatch):
+    """Guards the test above: with the boost off, the cities outrank the article, so the boost is what fixes it."""
+    r = await japan_like_index(zim_path)
+    monkeypatch.setattr(hybrid, "FOCUS_BOOST", 0.0)
+    assert (await r.search("capital of Japan", 4))[0].title != "Japan"
+
+
+async def test_a_subject_with_no_article_gets_no_boost(zim_path):
+    r = await japan_like_index(zim_path)
+    assert all(c.title != "Japan" for c in await r.search("capital of Atlantis", 4))
 
 
 # ---- two-pass ("fast") indexing ---------------------------------------------------------------

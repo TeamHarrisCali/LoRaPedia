@@ -5,6 +5,13 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Fixed
+- **"What is the capital of Japan?" found no answer in Wikipedia.** The four passages sent to the model were Nagoya, Hiroshima,
+  Nagasaki and Sendai (each "the capital of" a prefecture in Japan), so the node fell back to the model's own memory. Retrieval now
+  looks 60 deep per signal instead of 20 and boosts the article named by the subject of an "attribute of subject" question. On 94
+  such questions against the real 49,864-article index, the answer reaches the model for 92 (was 89), and the capital of Japan
+  now comes from the library. Search time is unchanged.
+
 ## [0.1.3] - 2026-10-28
 
 ### Added

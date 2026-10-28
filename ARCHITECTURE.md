@@ -131,8 +131,11 @@ most the batch in flight, and *resume* continues at the checkpoint.
 | `index_state` | Per-file checkpoint, counts, status |
 | `meta` | Which embedder built the vectors (mixing embedders is refused) |
 
-**Retrieval.** Keyword (FTS5/BM25) and vector (nearest neighbours) each return 20 candidates. They are fused with
-reciprocal rank fusion, then reranked by title match, query-term coverage and a small lead-chunk bonus. A
+**Retrieval.** Keyword (FTS5/BM25) and vector (nearest neighbours) each return 60 candidates. They are fused with
+reciprocal rank fusion, then reranked by title match, query-term coverage and a small lead-chunk bonus. For a question shaped
+"attribute of subject" ("capital of Japan", "largest city in Canada") the article named by the subject gets a further boost:
+look-alike pages that repeat the question's words (every Japanese city is "the capital of" something in Japan) otherwise fill the
+four slots and the page that holds the answer never reaches the model. A
 vector-only hit must clear a similarity floor, so an unrelated question retrieves nothing and gets "not found"
 instead of a confident wrong answer. At most two chunks per article reach the prompt. If the embedder is down,
 search quietly degrades to keyword-only.
