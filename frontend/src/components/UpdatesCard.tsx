@@ -63,6 +63,13 @@ export function UpdatesCard({ draft, set }: { draft: Settings; set: (p: Partial<
             </p>
           )}
           {lostWhileApplying && <p className="mt-2 text-amber-text">Restarting into the new version… this page reconnects by itself.</p>}
+          {a.updater_outdated && (
+            <div role="alert" className="mt-2 rounded-lg border border-amber p-3">
+              <p>The updater container is older than this version and cannot install beta releases (it only knows stable ones), so nothing was changed. Update it first, in the project folder:</p>
+              <pre className="mt-2 overflow-auto font-mono text-xs">docker compose pull updater{"\n"}docker compose up -d updater</pre>
+              <p className="mt-2">Then press Update now again.</p>
+            </div>
+          )}
           {a.last_update && a.last_update.result !== "requested" && <p className="mt-1 text-muted">Last update: {a.last_update.from} → {a.last_update.to} ({a.last_update.result}).</p>}
           {a.update_available && a.idle_reason && a.auto_update && a.can_apply && <p className="mt-1 text-muted">An automatic update is waiting until {a.idle_reason === "a question was answered a moment ago" ? "the node has been quiet for a few minutes" : a.idle_reason}.</p>}
         </div>

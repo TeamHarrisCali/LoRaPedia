@@ -29,8 +29,9 @@ try new features early. It is meant for a node you can afford to break.
   (`git switch beta` for a source checkout; the image to put in `.env` for Docker without the updater).
 - The request the app sends the updater carries one word, `beta`, and nothing else (no version, no image). The updater refuses any other
   field. A compromised app could therefore at worst move the node to a signed beta of this repository, never to anything else.
-- An older updater container simply ignores the channel and keeps offering stable releases, which is safe. To get betas, pull the
-  new one: `docker compose pull updater && docker compose up -d updater`.
+- An older updater container simply ignores the channel and keeps offering stable releases, which is safe, but pressing Update now then
+  appears to do nothing ("Already on the newest release"). The Updates card says so when it sees this. To get betas, pull the new one:
+  `docker compose pull updater && docker compose up -d updater`, then press Update now again.
 
 ## What an update cannot change
 

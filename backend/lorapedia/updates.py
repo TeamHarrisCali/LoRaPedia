@@ -459,6 +459,18 @@ class UpdateService:
             return f"not started: {exc}"
         return "applied"
 
+    def _updater_outdated(self, updater, last) -> bool:
+        """True when a beta was asked for but the updater answered as if only stable releases existed.
+
+        An updater from before the beta channel ignores the word "beta" and, finding nothing newer than the stable release already
+        installed, goes back to idle with that release as its target ("Already on the newest release"). A current updater that was
+        given the same request targets the beta (or reports a failure). Derived from what the updater says, so it also works for
+        updater versions that do not know how to describe themselves."""
+        return bool(self.channel() == "beta" and isinstance(last, dict) and last.get("result") == "requested"
+                    and valid_beta_tag("v" + str(last.get("to"))) and isinstance(updater, dict) and updater.get("state") == "idle"
+                    and updater.get("target") not in (None, last.get("to"))
+                    and isinstance(updater.get("updated"), (int, float)) and updater["updated"] >= (last.get("ts") or 0) - 5)
+
     # ---- status for the UI ----------------------------------------------------------------------------------------------
     async def status(self) -> dict:
         install = self.install()
@@ -470,6 +482,7 @@ class UpdateService:
             if last.get("to") == __version__:
                 last["result"] = "done"  # we are the new version
                 self.store.set_json(KEY_LAST, last)
+        updater = await self.updater_status()
         return {
             "version": __version__, "install": {"kind": install["kind"], "steps": manual_steps(install, s.update_channel, latest)},
             "check_enabled": s.update_check, "auto_update": s.auto_update, "channel": s.update_channel,
@@ -478,7 +491,7 @@ class UpdateService:
             "last_error": plain_text(state.get("error"), 300) or None,
             "latest": latest, "update_available": bool(available),
             "last_update": {k: last.get(k) for k in ("from", "to", "ts", "backup", "result")} if isinstance(last, dict) and last else None,
-            "updater": await self.updater_status(),
+            "updater": updater, "updater_outdated": self._updater_outdated(updater, last),
             "idle_reason": self.idle_reason() if available else None,
         }
 
