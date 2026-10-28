@@ -5,6 +5,17 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-10-28
+
+### Added
+- **On Linux, the Radio page says why a USB radio will not connect, and what to type.** It looks at what is really there (the device
+  files, which group owns them, their permissions, which groups this program is in) and tells the usual causes apart: no data cable or
+  no device at all; not being in the device's group (with the right `usermod` command for the group this computer actually uses); a
+  device file only root can open, or one its group cannot write to (with a ready-made udev rule); another program holding the port
+  (ModemManager, the Meshtastic app or CLI); in Docker, a container that learned the device's group before the radio was plugged in
+  (restart it) or that was started from an old compose file; and a radio that is reachable but does not answer. Commands can be copied.
+  Nothing is shown on other systems or when you use a network or Bluetooth radio.
+
 ## [0.1.9] - 2026-10-28
 
 ### Fixed

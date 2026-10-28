@@ -48,6 +48,11 @@ export interface Health {
   avg_latency_s: number;
 }
 
+/** Linux only: what to try when a USB radio will not connect, worked out from the device files and who we are. */
+export interface RadioHelp {
+  title: string; why: string; steps: string[]; commands: { label: string; text: string }[]; docker: boolean; open: boolean;
+  facts?: Record<string, string | number | number[]>;
+}
 export interface RadioStatus {
   active: "meshtastic" | "simulator";
   connected: boolean;
@@ -56,6 +61,7 @@ export interface RadioStatus {
   node_id: string;
   error: string | null;
   device: { short_name?: string; long_name?: string; hw?: string };
+  help: RadioHelp | null;
   last_rx: number | null;
   rssi: number | null;
   snr: number | null;
