@@ -160,8 +160,9 @@ export interface AppUpdateStatus {
   checked: number | null; last_error: string | null;
   channel: "stable" | "beta";
   latest: { tag: string; url: string; notes: string; beta: boolean } | null; update_available: boolean;
-  last_update: { from: string; to: string; ts: number; backup: string; result: string } | null;
-  updater: UpdaterState | null; updater_outdated: boolean; idle_reason: string | null;
+  last_update: { from: string; to: string; ts: number; backup: string; result: string; downgrade?: boolean } | null;
+  updater: UpdaterState | null; updater_outdated: boolean;
+  on_beta: boolean; can_leave_beta: boolean; leave_beta_steps: string[]; idle_reason: string | null;
   result?: { ok: boolean; outcome: string; message: string };
 }
 export interface WikiUpdateInfo { package: string; name: string; installed: string; latest: string; size_mb: number; needs_mb: number; replaces: string[] }

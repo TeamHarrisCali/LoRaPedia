@@ -251,6 +251,15 @@ def manual_steps(install: dict, channel: str, latest: dict | None) -> list[str]:
     return steps
 
 
+def leave_beta_steps(install: dict) -> list[str]:
+    """What to type to go from a beta back to stable on an install that cannot do it itself."""
+    if install["kind"] == "git":
+        return ["git switch main", "git pull", "./run.sh"]
+    if install["kind"] == "docker-manual":
+        return ["Set LORAPEDIA_IMAGE=ghcr.io/teamharriscali/lorapedia:latest in the .env file, then:", "docker compose up -d"]
+    return []
+
+
 # ---- the service the app owns ---------------------------------------------------------------------------------------------
 class UpdateService:
     def __init__(
@@ -412,20 +421,56 @@ class UpdateService:
             backup = self.backup(available["tag"][1:])
             self.store.set_json(KEY_LAST, {"from": __version__, "to": available["tag"][1:], "ts": self._clock(),
                                            "backup": backup, "result": "requested", "who": who})
-            try:
-                async with self._updater_client() as c:
-                    # Stable sends nothing (so an older updater works unchanged); beta sends the one word the updater accepts.
-                    r = await c.post("/v1/apply", json={"channel": "beta"}) if self.channel() == "beta" else await c.post("/v1/apply")
-            except Exception as exc:
-                raise UpdateError(f"The updater could not be reached ({exc.__class__.__name__}). Is it running?") from exc
-            if r.status_code == 401:
-                raise UpdateError("The updater refused the request (bad token). Restart both containers.")
-            if r.status_code == 409:
-                raise UpdateError((r.json().get("error") if r.headers.get("content-type", "").startswith("application/json") else None) or "The updater is busy.")
-            if r.status_code != 202:
-                raise UpdateError(f"The updater answered HTTP {r.status_code}.")
+            # Stable sends nothing (so an older updater works unchanged); beta sends the one word the updater accepts.
+            await self._ask_updater({"channel": "beta"} if self.channel() == "beta" else None)
             log.info("update to %s requested by %s (backup %s)", available["tag"], who, backup)
             return {"requested": True, "tag": available["tag"], "backup": backup}
+
+    async def _ask_updater(self, body: dict | None, old_updater_hint: str | None = None) -> None:
+        """POST /v1/apply and turn every way it can go wrong into a plain message."""
+        try:
+            async with self._updater_client() as c:
+                r = await c.post("/v1/apply", json=body) if body is not None else await c.post("/v1/apply")
+        except Exception as exc:
+            raise UpdateError(f"The updater could not be reached ({exc.__class__.__name__}). Is it running?") from exc
+        if r.status_code == 401:
+            raise UpdateError("The updater refused the request (bad token). Restart both containers.")
+        if r.status_code == 409:
+            raise UpdateError((r.json().get("error") if r.headers.get("content-type", "").startswith("application/json") else None) or "The updater is busy.")
+        if r.status_code == 400 and old_updater_hint:
+            raise UpdateError(old_updater_hint)
+        if r.status_code != 202:
+            raise UpdateError(f"The updater answered HTTP {r.status_code}.")
+
+    def running_beta(self) -> bool:
+        return valid_beta_tag("v" + __version__)
+
+    async def leave_beta(self, who: str = "user") -> dict:
+        """Return from a beta to the newest STABLE release, which is a lower version number: the one downgrade there is.
+
+        Only a node that is running a beta may do this, and only to the newest stable release (found here, from GitHub, and then
+        found again and verified by the updater itself). A backup of the settings and log is made first. Raises UpdateError."""
+        install = self.install()
+        if not install["can_apply"]:
+            raise UpdateError(install["reason"] or "This installation cannot update itself.")
+        if not self.running_beta():
+            raise UpdateError("This is not a beta, so there is nothing to return from.")
+        if self._apply_lock.locked():
+            raise UpdateError("An update is already being applied.")
+        async with self._apply_lock:
+            res = await fetch_latest(None, now=self._clock(), transport=self._transport, channel="stable")
+            release = res.get("release")
+            if res["outcome"] != "ok" or not release or not valid_tag(release["tag"]):
+                raise UpdateError(f"The newest stable release could not be found ({res['message'] or res['outcome']}), so nothing was changed.")
+            tag = release["tag"]
+            backup = self.backup(tag[1:])
+            self.store.set_json(KEY_LAST, {"from": __version__, "to": tag[1:], "ts": self._clock(), "backup": backup,
+                                           "result": "requested", "who": who, "downgrade": True})
+            await self._ask_updater({"channel": "stable", "leave_beta": True},
+                                    "The updater container is too old to return to stable (it only knows how to move forward). Update it "
+                                    "first, in the project folder: docker compose pull updater && docker compose up -d updater")
+            log.info("return from %s to %s requested by %s (backup %s)", __version__, tag, who, backup)
+            return {"requested": True, "tag": tag, "backup": backup, "downgrade": not is_newer(tag)}
 
     # ---- automatic updates ----------------------------------------------------------------------------------------------
     def idle_reason(self) -> str | None:
@@ -466,6 +511,10 @@ class UpdateService:
         installed, goes back to idle with that release as its target ("Already on the newest release"). A current updater that was
         given the same request targets the beta (or reports a failure). Derived from what the updater says, so it also works for
         updater versions that do not know how to describe themselves."""
+        if isinstance(last, dict) and last.get("downgrade") and last.get("result") == "requested" and isinstance(updater, dict):
+            # An updater that does not know "leave the beta" goes straight back to idle: a supporting one is busy pulling and verifying.
+            return bool(updater.get("state") == "idle" and isinstance(updater.get("updated"), (int, float))
+                        and updater["updated"] >= (last.get("ts") or 0) - 5)
         return bool(self.channel() == "beta" and isinstance(last, dict) and last.get("result") == "requested"
                     and valid_beta_tag("v" + str(last.get("to"))) and isinstance(updater, dict) and updater.get("state") == "idle"
                     and updater.get("target") not in (None, last.get("to"))
@@ -490,8 +539,10 @@ class UpdateService:
             "checked": state.get("checked") if isinstance(state.get("checked"), (int, float)) else None,
             "last_error": plain_text(state.get("error"), 300) or None,
             "latest": latest, "update_available": bool(available),
-            "last_update": {k: last.get(k) for k in ("from", "to", "ts", "backup", "result")} if isinstance(last, dict) and last else None,
+            "last_update": {k: last.get(k) for k in ("from", "to", "ts", "backup", "result", "downgrade")} if isinstance(last, dict) and last else None,
             "updater": updater, "updater_outdated": self._updater_outdated(updater, last),
+            "on_beta": self.running_beta(), "can_leave_beta": bool(self.running_beta() and install["can_apply"]),
+            "leave_beta_steps": leave_beta_steps(install) if self.running_beta() else [],
             "idle_reason": self.idle_reason() if available else None,
         }
 

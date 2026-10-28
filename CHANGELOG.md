@@ -5,6 +5,15 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Added
+- **Return to stable** (Settings → Updates, while you run a beta). Updates never go backwards, so a node that tried the beta channel
+  could not get back to the stable release without editing files by hand. The button sets the channel to Stable, takes a backup of
+  the settings and question log, and installs the newest stable release, signature-verified like any release. It is the only downgrade
+  there is: the updater accepts it only from a node running `X.Y.Z-beta.N`, only to the newest stable release, and only for the exact
+  request `{"channel": "stable", "leave_beta": true}`; a stable node is still never moved to an older release. Installs that cannot do
+  it themselves are shown the commands, and an updater container too old to know about it is named as such. Needs the new updater
+  image (`docker compose pull updater && docker compose up -d updater`).
+
 ## [0.1.10] - 2026-10-28
 
 ### Added
