@@ -21,10 +21,10 @@ class Settings(BaseModel):
     radio_method: Literal["auto", "simulator", "serial", "tcp", "ble"] = "auto"
     radio_address: str = ""  # serial port path, TCP host, or BLE address; empty = auto-detect
 
-    # Trigger
-    trigger_mode: Literal["dm", "channel", "both"] = "dm"
+    # Trigger. LoRaPedia answers DIRECT MESSAGES ONLY and never posts to a public channel: that is not a setting. (An older settings
+    # file may still hold trigger_mode / channel_index; they are ignored.) The prefixes are optional in a direct message and are removed
+    # when present ("?what is a quasar", "!wiki quasar").
     trigger_prefixes: list[str] = ["?", "!wiki"]
-    channel_index: int = Field(0, ge=0, le=7)
     hop_limit: int = Field(3, ge=1, le=7)
     allowlist: list[str] = []  # empty = everyone allowed
     blocklist: list[str] = []

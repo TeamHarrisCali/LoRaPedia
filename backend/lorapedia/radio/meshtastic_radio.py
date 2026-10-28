@@ -6,7 +6,10 @@ blocking calls (connect, send, close) run in worker threads.
 """
 
 import asyncio
+import glob
 import logging
+import os
+import stat
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -20,7 +23,6 @@ from .base import Packet
 log = logging.getLogger(__name__)
 
 BROADCAST_NUM = 0xFFFFFFFF  # meshtastic.BROADCAST_NUM
-BROADCAST_ADDR = "^all"  # meshtastic.BROADCAST_ADDR
 MAX_PAYLOAD = 233  # Meshtastic's hard text limit; the configured limit is always <= this
 CONNECT_TIMEOUT_S = 20  # the library's default is 300s, far too long for a UI "Retry"
 
@@ -35,8 +37,53 @@ class ConnectionSpec:
     address: str = ""  # serial port path, TCP host, or BLE address/name; "" = auto-detect where possible
 
 
+DEVICE_DIR_ENV = "LORAPEDIA_DEVICE_DIR"
+SYSFS_TTY = "/sys/class/tty"
+
+
+def _usb_vendor(name: str, sysfs: str = SYSFS_TTY) -> int | None:
+    """The USB vendor id behind a serial device (ttyACM0 -> 0x239a), read from sysfs; None when it cannot be told."""
+    try:
+        here = os.path.realpath(os.path.join(sysfs, name, "device"))
+        for _ in range(5):  # the vendor id sits a few levels above the interface the tty hangs off
+            vid = os.path.join(here, "idVendor")
+            if os.path.isfile(vid):
+                with open(vid, encoding="ascii") as f:
+                    return int(f.read().strip(), 16)
+            here = os.path.dirname(here)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def scan_device_dir(root: str, sysfs: str = SYSFS_TTY) -> list[str]:
+    """Serial ports among the device files in `root` that look like Meshtastic radios, the way meshtastic's own finder judges them:
+    those from a vendor Meshtastic lists first, otherwise anything not known to be something else.
+
+    Used when LORAPEDIA_DEVICE_DIR points somewhere other than /dev: in Docker the host's /dev is mounted beside the container's own,
+    so a radio plugged in at any time appears there (and again after it resets) without the container being reconfigured."""
+    try:
+        from meshtastic.util import blacklistVids, whitelistVids
+    except Exception:  # an old library without the lists: judge nothing, offer everything
+        whitelistVids, blacklistVids = {}, {}
+    found = []
+    for pattern in ("ttyACM*", "ttyUSB*"):
+        for path in glob.glob(os.path.join(root, pattern)):
+            try:
+                if stat.S_ISCHR(os.stat(path).st_mode):
+                    found.append((path, _usb_vendor(os.path.basename(path), sysfs)))
+            except OSError:
+                pass
+    found.sort()
+    likely = [p for p, vid in found if vid is not None and vid in whitelistVids]
+    return likely or [p for p, vid in found if vid is None or vid not in blacklistVids]
+
+
 def list_serial_ports() -> list[str]:
     """Serial ports that look like Meshtastic devices."""
+    root = os.environ.get(DEVICE_DIR_ENV, "")
+    if root and os.path.realpath(root) != "/dev":
+        return scan_device_dir(root)
     try:
         from meshtastic.util import findPorts
         return list(findPorts(True))
@@ -73,6 +120,9 @@ def _friendly(exc: BaseException, spec: ConnectionSpec) -> RadioError:
     text = str(exc)
     if isinstance(exc, RadioError):
         return exc
+    if ("ermission" in text or "Errno 13" in text) and os.environ.get(DEVICE_DIR_ENV):
+        return RadioError(f"Permission denied opening {spec.address or 'the serial port'}. LoRaPedia learns the device's group when its "
+                          "container starts, so if the radio was plugged in afterwards, run `docker compose restart lorapedia`.")
     if "ermission" in text or "Errno 13" in text:
         return RadioError(f"Permission denied opening {spec.address or 'the serial port'}. Add your user to the "
                           "'dialout' group (or 'uucp' on Arch), then log out and back in.")
@@ -209,11 +259,13 @@ class MeshtasticRadio:
     async def send_text(self, text: str, to: str | None, channel: int, hop_limit: int) -> None:
         if self._iface is None:
             raise RadioError("Radio is not connected.")
+        if to is None:  # the lowest layer of the same rule: this adapter has no way to broadcast
+            raise RadioError("LoRaPedia never posts to a public channel: a message needs an addressee.")
         if byte_len(text) > MAX_PAYLOAD:  # last line of defence; the fitter keeps us well below this
             raise RadioError(f"Refusing to send {byte_len(text)} bytes (limit {MAX_PAYLOAD}).")
         iface = self._iface
         await asyncio.to_thread(
-            iface.sendText, text, destinationId=to or BROADCAST_ADDR, wantAck=to is not None,
+            iface.sendText, text, destinationId=to, wantAck=True,
             channelIndex=channel, hopLimit=hop_limit)
 
     # ---- info for the UI ----------------------------------------------------------------

@@ -5,6 +5,23 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Changed
+- **LoRaPedia can no longer reply in a public channel, by construction.** Direct messages only was already the default; it is now the
+  only behaviour, not a setting. The "In a channel" and "Both" trigger modes and the channel selector are gone from the Radio page, and
+  an older settings file that asks for them is ignored. The rule is enforced in four places, each with its own test that fails if that
+  place is weakened: the message parser (a public message is never a question or command), the engine (it refuses to send for a public
+  packet), the radio manager (a message with no addressee is refused) and the Meshtastic adapter (it has no way to broadcast).
+
+### Changed
+- **A USB radio is found automatically in Docker, whatever it is.** No device path or group number to look up, nothing to put in an
+  override file: plug any Meshtastic radio into USB, before or after starting, and it is found again after a reset or a replug
+  (even when it returns under another number). The compose file mounts the host's `/dev` read-only at `/hostdev`, allows only USB
+  serial ports to be opened, and starts the container as root with just SETUID and SETGID; `docker/entrypoint.sh` reads the groups of
+  the serial devices, becomes the unprivileged user (uid 10001) with those groups, drops every capability, and only then runs the
+  app. The app never runs as root. A radio plugged in later whose group was not seen at start needs `docker compose restart
+  lorapedia` once. **Existing installs get this by fetching the new `docker-compose.yml`** (the image alone, with an older compose
+  file, runs as before). Untested: rootless Docker and Podman.
+
 ## [0.1.7] - 2026-10-28
 
 ### Fixed

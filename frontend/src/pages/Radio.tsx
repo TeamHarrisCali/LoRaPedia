@@ -3,7 +3,7 @@ import { Bubble } from "../components/Bubble";
 import { ByteMeter } from "../components/ByteMeter";
 import { SaveBar } from "../components/SaveBar";
 import { SignalGlyph } from "../components/SignalGlyph";
-import { Badge, Card, Dot, EmptyState, Field, Help, PageHeader, SectionTitle, Toggle } from "../components/ui";
+import { Badge, Card, Dot, EmptyState, Field, PageHeader, SectionTitle, Toggle } from "../components/ui";
 import { api, errorText } from "../lib/api";
 import { timeAgo, utf8Bytes } from "../lib/format";
 import { useLive } from "../lib/live";
@@ -22,7 +22,6 @@ export function Radio() {
   const live = useLive();
   const status = usePoll(() => api.get<RadioStatus>("/api/radio/status"), 4000);
   const nodes = usePoll(() => api.get<RadioNode[]>("/api/radio/nodes"), 8000);
-  const channels = usePoll(() => api.get<{ index: number; name: string }[]>("/api/radio/channels"), 15000);
   const st = live.radio ?? status.data;
   const [prefixText, setPrefixText] = useState<string | null>(null);
   if (!draft) return <p className="text-muted" role="status">Loading…</p>;
@@ -41,35 +40,19 @@ export function Radio() {
 
       <Card className="mb-5">
         <SectionTitle hint="Plug the radio in over USB and leave this on Auto. Or choose another connection.">Connection</SectionTitle>
-        <RadioConnect status={st} onChanged={() => { void status.reload(); void nodes.reload(); void channels.reload(); }} />
+        <RadioConnect status={st} onChanged={() => { void status.reload(); void nodes.reload(); }} />
       </Card>
 
       <Card className="mb-5">
         <SectionTitle hint="Which messages the node answers.">Trigger</SectionTitle>
-        <fieldset className="mb-4">
-          <legend className="mb-2 text-sm font-medium">Answer questions sent…</legend>
-          {([["dm", "As direct messages to this node", "Quietest option: only the person asking sees the reply."],
-             ["channel", "In a channel, starting with a prefix", "Everyone on the channel sees the answer. Needs a prefix like ? so normal chat is ignored."],
-             ["both", "Both", ""]] as const).map(([v, label, help]) => (
-            <label key={v} className="mb-2 flex cursor-pointer items-start gap-3">
-              <input type="radio" name="trigger" className="mt-1" checked={draft.trigger_mode === v} onChange={() => set({ trigger_mode: v })} />
-              <span><span className="text-sm font-medium">{label}</span>{help && <Help>{help}</Help>}</span>
-            </label>
-          ))}
-        </fieldset>
+        <p className="mb-4 rounded-lg border border-line bg-bg p-3 text-sm">
+          <b>Direct messages only.</b> Anyone can message this node directly and gets a private answer. It never replies in a public channel,
+          and anything said in a channel is ignored. This is not a setting: it cannot be switched on by mistake.
+        </p>
         <div className="grid gap-x-6 sm:grid-cols-2">
-          <Field label="Trigger prefixes" htmlFor="prefixes" help="Separate with commas. In channels, a message must start with one of these.">
-            <input id="prefixes" className="field font-mono" value={prefixes} disabled={draft.trigger_mode === "dm"}
+          <Field label="Trigger prefixes" htmlFor="prefixes" help="Separate with commas. Optional in a direct message: &quot;?what is a quasar&quot; and &quot;what is a quasar&quot; both work.">
+            <input id="prefixes" className="field font-mono" value={prefixes}
               onChange={(e) => { setPrefixText(e.target.value); set({ trigger_prefixes: e.target.value.split(",").map((x) => x.trim()).filter(Boolean) }); }} />
-          </Field>
-          <Field label="Channel to listen on" htmlFor="channel" help="Replies go out on the channel the question came in on.">
-            {channels.data && channels.data.length > 0 ? (
-              <select id="channel" className="field" value={draft.channel_index} onChange={(e) => set({ channel_index: Number(e.target.value) })}>
-                {channels.data.map((c) => <option key={c.index} value={c.index}>{c.index}: {c.name}</option>)}
-              </select>
-            ) : (
-              <input id="channel" type="number" min={0} max={7} className="field" value={draft.channel_index} onChange={(e) => set({ channel_index: Number(e.target.value) })} />
-            )}
           </Field>
           <Field label={`Hop limit: ${draft.hop_limit}`} htmlFor="hops" help="How many relays a reply may pass through. Higher reaches farther but uses more airtime for everyone.">
             <input id="hops" type="range" min={1} max={7} value={draft.hop_limit} onChange={(e) => set({ hop_limit: Number(e.target.value) })} />

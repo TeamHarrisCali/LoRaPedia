@@ -1,4 +1,4 @@
-"""Decide whether an incoming text message is a question, a command, or noise."""
+"""Decide whether an incoming text message is a question, a command, or noise. Only direct messages are ever answered."""
 
 from dataclasses import dataclass
 from typing import Literal
@@ -12,25 +12,16 @@ class Parsed:
     text: str = ""  # question text, or command name
 
 
-def parse_message(
-    text: str, is_dm: bool, mode: str = "dm", prefixes: tuple[str, ...] | list[str] = ("?", "!wiki")
-) -> Parsed:
-    """mode: "dm" (direct messages only), "channel" (prefix required), or "both"."""
+def parse_message(text: str, is_dm: bool, prefixes: tuple[str, ...] | list[str] = ("?", "!wiki")) -> Parsed:
+    """Only a direct message can be a question or a command: whatever is said in a public channel is ignored, always."""
+    if not is_dm:
+        return Parsed("ignore")
     text = text.strip()
     if not text:
         return Parsed("ignore")
 
     stripped = _strip_prefix(text, prefixes)
-    if is_dm:
-        if mode not in ("dm", "both"):
-            return Parsed("ignore")
-        body = stripped if stripped is not None else text  # prefix optional in a DM
-    else:
-        if mode not in ("channel", "both") or stripped is None:
-            return Parsed("ignore")
-        body = stripped
-
-    body = body.strip()
+    body = (stripped if stripped is not None else text).strip()  # the prefix is optional in a direct message
     if not body:
         return Parsed("ignore")
     if body.lower() in COMMANDS:

@@ -30,8 +30,11 @@ COPY LICENSE CHANGELOG.md ./
 
 # A numeric, unprivileged user. /data (a volume) is the only place the app writes besides /tmp. A new named volume takes
 # this folder's ownership the first time, so it is writable by this user; a bind-mounted host folder must be made
-# writable for uid 10001 by hand. The extra groups for USB serial access are added by compose (group_add).
-RUN groupadd --gid 10001 lorapedia \
+# writable for uid 10001 by hand. This image runs as that user by default. docker-compose.yml starts it as root instead, so the
+# entrypoint can give the app the group of a USB radio's device file (whatever that is on this computer) before dropping to it.
+COPY docker/entrypoint.sh /usr/local/bin/lorapedia-entrypoint
+RUN chmod 755 /usr/local/bin/lorapedia-entrypoint \
+ && groupadd --gid 10001 lorapedia \
  && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin lorapedia \
  && mkdir /data && chown 10001:10001 /data
 USER 10001:10001
@@ -51,4 +54,5 @@ LABEL org.opencontainers.image.title="LoRaPedia" \
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).read()"]
 
+ENTRYPOINT ["lorapedia-entrypoint"]
 CMD ["lorapedia"]

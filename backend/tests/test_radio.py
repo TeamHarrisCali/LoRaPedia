@@ -175,12 +175,14 @@ async def test_no_delivery_after_close():
 # ---- sending ------------------------------------------------------------------------------
 
 
-async def test_send_dm_and_broadcast_arguments():
+async def test_send_dm_arguments_and_the_radio_has_no_way_to_broadcast():
     radio, iface = await connected_radio()
     await radio.send_text("hello", "!a1b2c3d4", 0, 3)
-    await radio.send_text("hello all", None, 2, 5)
-    assert iface.sent == [dict(text="hello", to="!a1b2c3d4", ack=True, channel=0, hops=3),
-                          dict(text="hello all", to="^all", ack=False, channel=2, hops=5)]
+    assert iface.sent == [dict(text="hello", to="!a1b2c3d4", ack=True, channel=0, hops=3)]
+    for args in (("hello all", None, 2, 5), ("hello all", None, 0, 3)):
+        with pytest.raises(RadioError, match="public channel"):
+            await radio.send_text(*args)
+    assert len(iface.sent) == 1  # nothing was handed to the library
 
 
 async def test_send_refuses_over_meshtastic_hard_limit():
@@ -197,7 +199,7 @@ async def test_send_when_disconnected_raises():
     radio, _ = await connected_radio()
     await radio.close()
     with pytest.raises(RadioError, match="not connected"):
-        await radio.send_text("hi", None, 0, 3)
+        await radio.send_text("hi", "!a1b2c3d4", 0, 3)
 
 
 async def test_nodes_and_channels_for_the_ui():
@@ -374,24 +376,32 @@ async def test_end_to_end_dm_question_answered_over_the_real_radio():
     worker.cancel()
 
 
-async def test_end_to_end_channel_reply_uses_the_incoming_channel_and_prefix():
-    s = Settings(send_delay_s=0, trigger_mode="channel", channel_index=1)
+async def test_end_to_end_a_public_message_gets_no_answer_even_with_an_old_channel_setting():
+    s = Settings.model_validate_json('{"trigger_mode": "channel", "channel_index": 1, "send_delay_s": 0}')
     mgr, engine, worker = await full_stack(s)
-    from_radio_thread(text_packet("?what is photosynthesis", to=BROADCAST_NUM, pid=2, channel=1), mgr.fake)
-    await until(lambda: mgr.fake.sent)
-    sent = mgr.fake.sent[0]
-    assert sent["to"] == "^all" and sent["channel"] == 1 and sent["text"].startswith("@BOB ")
-    assert byte_len(sent["text"]) <= 200
+    for pid, ch in ((2, 1), (3, 0)):
+        from_radio_thread(text_packet("?what is photosynthesis", to=BROADCAST_NUM, pid=pid, channel=ch), mgr.fake)
+    await asyncio.sleep(0.15)
+    assert mgr.fake.sent == [] and mgr.sim.sent == [] and engine.queue.empty()
     worker.cancel()
 
 
-async def test_channel_trigger_ignores_other_channels():
-    s = Settings(send_delay_s=0, trigger_mode="channel", channel_index=1)
-    mgr, engine, worker = await full_stack(s)
-    from_radio_thread(text_packet("?quasar", to=BROADCAST_NUM, pid=3, channel=0), mgr.fake)
-    await asyncio.sleep(0.1)
-    assert mgr.fake.sent == [] and engine.queue.empty()
+async def test_the_manager_the_engine_sends_through_refuses_to_broadcast():
+    mgr, engine, worker = await full_stack(Settings(send_delay_s=0))
+    with pytest.raises(RadioError, match="public channel"):
+        await mgr.send_text("hello all", None, 0, 3)
+    assert mgr.fake.sent == [] and mgr.sim.sent == []
     worker.cancel()
+
+
+async def test_the_manager_refuses_to_broadcast_even_when_only_the_simulator_is_active():
+    """The simulator would happily record a broadcast, so the manager's own rule is what stops it (the real radio has its own)."""
+    mgr = RadioManager(settings=lambda: Settings(radio_method="simulator"), submit=lambda p: asyncio.sleep(0), port_lister=lambda: [])
+    with pytest.raises(RadioError, match="public channel"):
+        await mgr.send_text("hello all", None, 0, 3)
+    assert mgr.sim.sent == []
+    await mgr.send_text("hello", "!a1b2c3d4", 0, 3)  # an addressed message is fine
+    assert [m.to for m in mgr.sim.sent] == ["!a1b2c3d4"]
 
 
 async def test_simulated_sender_is_answered_in_the_simulator_even_with_a_real_radio():

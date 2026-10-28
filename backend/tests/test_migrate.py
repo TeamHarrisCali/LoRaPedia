@@ -64,13 +64,13 @@ def test_a_deliberately_remote_ollama_is_left_alone(tmp_path):
 
 
 def test_nothing_else_is_touched(tmp_path):
-    data = make_data(tmp_path, trigger_mode="dm", byte_limit=180, blocklist=["!abcd0001"], llm_model="llama3.2:3b")
+    data = make_data(tmp_path, hop_limit=5, byte_limit=180, blocklist=["!abcd0001"], llm_model="llama3.2:3b")
     before = saved(data)
     M.patch(str(data), container_data="/data", ollama_url="http://ollama:11434")
     after = saved(data)
     changed = {k for k in before if before[k] != after[k]}
     assert changed == {"llm_base_url", "embed_base_url"}
-    assert after["byte_limit"] == 180 and after["blocklist"] == ["!abcd0001"] and after["trigger_mode"] == "dm"
+    assert after["byte_limit"] == 180 and after["blocklist"] == ["!abcd0001"] and after["hop_limit"] == 5
 
 
 def test_a_library_entry_without_a_file_is_reported_not_invented(tmp_path):

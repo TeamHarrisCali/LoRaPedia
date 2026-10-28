@@ -47,9 +47,10 @@ using it; only one program should talk to the radio at a time.
 
 You should see the device's name and node ID appear, and the status dot in the top bar turn teal.
 
-**Docker:** pass the device through and grant access. See the commented USB section of
-[docker-compose.yml](../docker-compose.yml): uncomment `devices:` and `group_add:` and use the numeric group id
-from `stat -c %g /dev/ttyACM0`.
+**Docker:** nothing to set up. The compose file finds any USB radio (whatever its brand, whichever port, plugged in before or after
+starting, and again after a reset). The container learns the device's group when it starts, so if the radio was plugged in
+afterwards and LoRaPedia says "Permission denied", run `docker compose restart lorapedia` once. The rules and what they allow are
+explained in the "USB RADIO" comment of [docker-compose.yml](../docker-compose.yml).
 
 ### Network (WiFi / Ethernet)
 
