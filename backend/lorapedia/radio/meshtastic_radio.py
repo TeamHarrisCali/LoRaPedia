@@ -338,6 +338,12 @@ class MeshtasticRadio:
 
         return await asyncio.to_thread(send)
 
+    def local_node(self):
+        """The library's object for this radio's own settings. Only the Radio settings page (radio/config.py) asks for it."""
+        if self._iface is None:
+            raise RadioError("The radio isn't connected.")
+        return self._iface.localNode
+
     async def post_public(self, text: str, channel: int, hop_limit: int) -> None:
         """Post to a public channel. ONLY the operator's Messages page calls this, when a person pressed the button (see messaging.py):
         nothing the engine does can reach it. It is deliberately a different method from `send_text`, which can never broadcast."""

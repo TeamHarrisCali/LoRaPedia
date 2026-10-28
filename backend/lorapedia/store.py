@@ -40,6 +40,11 @@ CREATE TABLE IF NOT EXISTS messages (     -- what you typed to a node or a chann
     simulated INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_node ON messages (node_id, id);
+CREATE TABLE IF NOT EXISTS radio_config_backups (   -- the radio's own settings, copied before each change (never secrets: see radio/config.py)
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL,
+    reason TEXT NOT NULL,        -- pulled | before changes | before restore
+    radio TEXT, config TEXT NOT NULL   -- JSON: {section: {field: value}}
+);
 CREATE TABLE IF NOT EXISTS chats (        -- nodes you wrote to: until then, what they send back is for you, not for the AI
     node_id TEXT PRIMARY KEY, until REAL NOT NULL
 );
@@ -157,6 +162,23 @@ class Store:
         with self._lock:
             rows = self._db.execute(f"SELECT * FROM deliveries WHERE packet_id IN ({', '.join('?' * len(packet_ids))})", packet_ids).fetchall()
         return {r["packet_id"]: self._delivery_view(r, now) for r in rows}
+
+    # ---- copies of the radio's settings -------------------------------------------------------------------------------------
+    def add_radio_backup(self, reason: str, radio: str | None, config: dict, keep: int = 40) -> int:
+        with self._lock:
+            cur = self._db.execute("INSERT INTO radio_config_backups (ts, reason, radio, config) VALUES (?,?,?,?)", (time.time(), reason, radio, json.dumps(config)))
+            self._db.execute("DELETE FROM radio_config_backups WHERE id NOT IN (SELECT id FROM radio_config_backups ORDER BY id DESC LIMIT ?)", (keep,))
+            self._db.commit()
+            return cur.lastrowid
+
+    def radio_backups(self) -> list[dict]:
+        with self._lock:
+            return [dict(r) for r in self._db.execute("SELECT id, ts, reason, radio FROM radio_config_backups ORDER BY id DESC")]
+
+    def radio_backup(self, backup_id: int) -> dict | None:
+        with self._lock:
+            r = self._db.execute("SELECT * FROM radio_config_backups WHERE id=?", (backup_id,)).fetchone()
+        return {**dict(r), "config": json.loads(r["config"])} if r else None
 
     # ---- what you typed, and chats --------------------------------------------------------------------------------------
     def add_message(self, direction: str, node_id: str | None, text: str, *, channel: int | None = None, packet_id: int | None = None,

@@ -28,6 +28,7 @@ from .llm.base import MockLLM
 from .mesh import sim as mesh_sim
 from .meshask import MeshAsker
 from .messaging import PUBLIC_GAP_S, MessageError, Messenger
+from .radio.config import ConfigError, RadioConfig
 from .mesh.service import MeshService, distance_km
 from .mesh.observe import csv_cell
 from .mesh.store import METRICS as MESH_METRICS
@@ -73,6 +74,25 @@ class PullRequest(BaseModel):
 class DirectMessage(BaseModel):
     node_id: str
     text: str
+
+
+class ConfigChanges(BaseModel):
+    changes: dict
+
+
+class RestoreRequest(BaseModel):
+    force: bool = False
+
+
+class OwnerNames(BaseModel):
+    long_name: str
+    short_name: str
+
+
+class FixedPosition(BaseModel):
+    lat: float
+    lon: float
+    alt: float = 0
 
 
 class PublicPost(BaseModel):
@@ -163,6 +183,8 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
                     retriever=retriever, store=store, emit=broadcast, library_state=index.library_state,
                     mesh_ask=MeshAsker(mesh, settings), operator=lambda pkt, s: messenger.intercept(pkt, s))
     messenger = Messenger(radio=radio, store=store, settings=settings, emit=broadcast)  # what the operator types: never reachable by the AI
+    radio_config = RadioConfig(node=lambda: radio.local_node(), store=store, enabled=lambda: settings().operator_radio_config,
+                               radio_id=lambda: radio.node_id if radio.active == "meshtastic" else None)  # the Radio settings page: never reachable by the AI
     indexer = Indexer(index, current_embedder())
 
     def register_zim(path: Path) -> dict:
@@ -577,6 +599,50 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
             return await asyncio.to_thread(mesh_store.set_note, mesh_node_id(node_id), body.label, body.note)
         except NoteError as exc:
             raise HTTPException(400, str(exc)) from exc
+
+    # ---- the Radio settings page: the radio's own configuration -----------------------------------------------------------------
+
+    async def run_config(fn, *args):
+        """Run a blocking radio call in a worker thread and turn a refusal into the matching HTTP error."""
+        try:
+            return await asyncio.to_thread(fn, *args)
+        except ConfigError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+
+    @app.get("/api/radio/config")
+    async def radio_config_view():
+        return await run_config(radio_config.view)
+
+    @app.post("/api/radio/config/pull")
+    async def radio_config_pull():
+        return await run_config(radio_config.pull)
+
+    @app.put("/api/radio/config")
+    async def radio_config_save(body: ConfigChanges):
+        return await run_config(radio_config.save, body.changes)
+
+    @app.get("/api/radio/config/backups/{backup_id}")
+    async def radio_config_backup(backup_id: int):
+        row = store.radio_backup(backup_id)
+        if row is None:
+            raise HTTPException(404, "That copy doesn't exist.")
+        return row
+
+    @app.post("/api/radio/config/backups/{backup_id}/restore")
+    async def radio_config_restore(backup_id: int, body: RestoreRequest):
+        return await run_config(radio_config.restore, backup_id, body.force)
+
+    @app.put("/api/radio/config/names")
+    async def radio_config_names(body: OwnerNames):
+        return await run_config(radio_config.set_names, body.long_name, body.short_name)
+
+    @app.put("/api/radio/config/position")
+    async def radio_config_position(body: FixedPosition):
+        return await run_config(radio_config.set_position, body.lat, body.lon, body.alt)
+
+    @app.delete("/api/radio/config/position")
+    async def radio_config_position_clear():
+        return await run_config(radio_config.clear_position)
 
     # ---- the Messages page: what you type yourself ----------------------------------------------------------------
 

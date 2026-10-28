@@ -18,6 +18,7 @@ export interface Settings {
   mesh_questions: boolean;
   operator_chat_minutes: number;
   operator_public_post: boolean;
+  operator_radio_config: boolean;
   memory_hours: number;
   mesh_retention_days: number;
   update_channel: "stable" | "beta";
@@ -237,3 +238,11 @@ export interface WikiUpdateStatus {
   last: Record<string, { result: string; to: string; ts: number; message?: string }>;
   result?: { ok: boolean; message: string };
 }
+
+export type RcValue = string | number | boolean;
+export interface RcField { name: string; label: string; kind: "bool" | "enum" | "int" | "float" | "string"; value: RcValue; choices?: string[]; min?: number; max?: number; help?: string; risk?: string }
+export interface RcSection { name: string; kind: string; label: string; fields: RcField[] }
+export interface RcBackup { id: number; ts: number; reason: string; radio: string | null }
+export interface RcView { connected: boolean; writable: boolean; sections: RcSection[]; backups: RcBackup[]; radio: string | null; excluded: { name: string; why: string }[]; error?: string }
+export interface RcChange { section: string; field: string; label: string; old: RcValue; new: RcValue; risk: string | null }
+export interface RcSaved { changed: RcChange[]; message: string; restarting?: boolean }

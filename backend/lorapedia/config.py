@@ -52,6 +52,9 @@ class Settings(BaseModel):
     # off until you turn it on; the AI can never post publicly, whatever these say.
     operator_chat_minutes: int = Field(30, ge=0, le=1440)
     operator_public_post: bool = False
+    # The Radio settings page can look at the radio's own settings always; CHANGING them (region, role, name, position...) is off until you
+    # turn it on, because a wrong value can cut the radio off from the mesh or be illegal where you are.
+    operator_radio_config: bool = False
 
     # What the radio hears of the rest of the mesh (nodes, positions, telemetry, signal), kept in mesh.db. Never message content.
     mesh_record: bool = True

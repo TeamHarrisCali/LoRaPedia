@@ -61,6 +61,11 @@ class RadioManager:
             raise RadioError("LoRaPedia never posts to a public channel: a reply goes only to the person who asked.")
         return await self._current.send_text(text, to, channel, hop_limit)
 
+    def local_node(self):
+        if not (self._real and self._real.connected):
+            raise RadioError("No radio is connected.")
+        return self._real.local_node()
+
     async def post_public(self, text: str, channel: int, hop_limit: int) -> None:
         """A post to a public channel typed by the operator. Only messaging.py calls it (and only for a button press with the setting on);
         the engine never does, and the simulator cannot do it: a post that cannot really go out is refused, not pretended."""

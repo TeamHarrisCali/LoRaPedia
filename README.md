@@ -207,6 +207,20 @@ it, but the node itself has not confirmed), **Sent, waiting**, **Not confirmed**
 because the confirmation can be lost) or **Failed** with the reason the mesh gave (for example "no route to the node"). An answer in
 several parts is delivered only when every part was. The simulator sends nothing over the air, so it shows no delivery report.
 
+**Finding things in long lists** *(beta)*. Long lists are shown a page at a time (Nodes, Live Feed, readings, traceroute history, link
+quality, the node lists), the Settings and Radio settings pages are split into tabs, and wherever you choose a node you type part of its
+name or id instead of scrolling a drop-down.
+
+**Radio settings** *(beta)*. The *Radio settings* page reads the radio's own configuration. Changing it is **off by default**
+(*Settings → Mesh and radio → Radio settings editor*), because a wrong region can be illegal and a wrong LoRa preset cuts the radio off from
+your mesh. With it on, the form is generated from the radio's own definitions so every value is type- and range-checked before anything is
+sent; the confirmation lists each change and its risk; a copy of the current settings is kept first (the newest 40 are kept, and restoring one
+from a different radio needs an explicit "Restore anyway"); only the sections that changed are written, in one transaction; and if the radio
+refuses, LoRaPedia's picture of it is rolled back. The radio restarts and LoRaPedia reconnects by itself. Sections holding secrets (Wi-Fi,
+security keys, MQTT) and the Bluetooth PIN are left out entirely, and the AI and anything received over the air can never reach this page.
+The web interface has no password: while editing is on, anyone who can open it could change the radio, so leave it off unless only you can
+reach it. Not yet tried against a real radio's firmware: it is tested against the library's own configuration definitions with a stand-in radio.
+
 **Messages you type** *(beta)*. The *Messages* page sends a direct message to one node (never to everyone), after you pick the node,
 one at a time, with a report of whether it arrived. A message written there is yours: the AI never sends it, never sees it, and the
 page says so. **Chats:** so your friend's "ok, see you there" is not answered with a Wikipedia article, for 30 minutes after you write to
@@ -266,6 +280,7 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 | **Link quality** *(beta)* | How well your radio hears the nodes that reach it directly: signal against distance with the decode limit marked, and a table. Also available as an overlay on the Map |
 | **Telemetry** *(beta)* | What nodes broadcast: sensor averages around you (each node counted once), battery, voltage, channel use, temperature, humidity and pressure over time for the nodes you pick, a table of recent readings, and a CSV export |
 | **Trends** *(beta)* | When the mesh is busiest (by hour of the day), a heat map of the last week, and how far packets travel (directly, or through how many relays). Counts only |
+| **Radio settings** *(beta)* | What is stored on the radio itself: region, role, LoRa preset, hop limit, power, position and telemetry intervals, and more, in tabs, with a search box to find a setting. Looking is always allowed; **changing is off until you turn it on in Settings**, then every change is checked, shown with what could go wrong, confirmed, written in one transaction, and preceded by a saved copy you can restore. Also the radio's name and a **fixed position** (a radio with no GPS has no position, so the Map cannot place it and distances cannot be worked out). Wi-Fi passwords, keys and MQTT credentials are never shown, copied or written |
 | **Messages** *(beta)* | Write to a node yourself: a direct message to one node, with a report of whether it arrived. After you write to a node, what it sends back (unless it starts with `?` or `!wiki`) comes to this page for a while instead of being answered by the AI. Also, **off by default**, a post to a public channel that you type and confirm yourself |
 | **Nodes** *(beta)* | Every node the radio has heard: names, hardware, hops, signal, battery, sensors, last position, and a history of each. Search and filter, and add your own label and note to any node |
 | **Settings** | Rate limits, queue length, AI-memory fallback, *Mesh AI* (mesh questions on or off, how long follow-ups are remembered), theme, temperature and distance units, backups, mesh data, CSV export of the log, demo data |

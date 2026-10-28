@@ -1,3 +1,5 @@
+import { Pager } from "../components/Pager";
+import { usePaged } from "../lib/usePaged";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Sparkline } from "../components/Sparkline";
@@ -119,6 +121,8 @@ export function Nodes() {
     return (d?.nodes ?? []).filter((n) => match(n, filter) && (!needle || [n.display, n.name, n.short, n.id, n.label, n.note, n.hw, n.role].some((v) => v?.toLowerCase().includes(needle))));
   }, [d, q, filter]);
 
+  const paged = usePaged(shown, 20, `${q}|${filter}`);
+
   async function demo() {
     setBusy(true);
     try { await api.post("/api/mesh/demo"); toast.success("Added a made-up mesh."); await data.reload(); }
@@ -159,7 +163,7 @@ export function Nodes() {
             </div>
             {shown.length === 0 ? <p className="text-sm text-muted">No node matches.</p> : (
               <ul className="divide-y divide-line rounded-xl border border-line bg-surface" aria-label="Nodes">
-                {shown.map((n) => (
+                {paged.slice.map((n) => (
                   <li key={n.id}>
                     <button type="button" aria-current={n.id === id ? "true" : undefined} onClick={() => nav(`/nodes/${encodeURIComponent(n.id)}`)}
                       className={`flex w-full flex-wrap items-center gap-x-3 gap-y-1 p-3 text-left hover:bg-raised ${n.id === id ? "bg-raised" : ""}`}>
@@ -176,6 +180,7 @@ export function Nodes() {
                 ))}
               </ul>
             )}
+            <Pager page={paged.page} pages={paged.pages} total={paged.total} size={paged.size} onPage={paged.setPage} noun="nodes" />
             <p className="mt-3 text-sm text-muted">Kept for {d.retention_days} days of history; a node you have not heard for 90 days is forgotten. Change this in Settings.</p>
           </div>
           <div className={id ? "order-first xl:order-none" : ""}>{id ? <Detail id={id} onChanged={() => void data.reload()} /> : <Card><p className="text-sm text-muted">Choose a node to see its history and add a label or note.</p>{s && Object.keys(s.hardware).length > 0 && <p className="mt-3 text-sm text-muted">Hardware around you: {Object.entries(s.hardware).map(([k, v]) => `${k} ×${v}`).join(", ")}</p>}</Card>}</div>

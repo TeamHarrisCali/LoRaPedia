@@ -15,6 +15,7 @@ import { Telemetry } from "./pages/Telemetry";
 import { Traceroute } from "./pages/Traceroute";
 import { Trends } from "./pages/Trends";
 import { Radio } from "./pages/Radio";
+import { RadioSettings } from "./pages/RadioSettings";
 import { SettingsPage } from "./pages/SettingsPage";
 import { Wizard } from "./pages/Wizard";
 
@@ -31,6 +32,7 @@ export default function App() {
                 <Route path="knowledge" element={<Knowledge />} />
                 <Route path="model" element={<Model />} />
                 <Route path="radio" element={<Radio />} />
+                <Route path="radio/settings" element={<RadioSettings />} />
                 <Route path="messages" element={<Messages />} />
                 <Route path="messages/:id" element={<Messages />} />
                 <Route path="nodes" element={<Nodes />} />

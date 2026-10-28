@@ -1,3 +1,6 @@
+import { NodePicker } from "../components/NodePicker";
+import { Pager } from "../components/Pager";
+import { usePaged } from "../lib/usePaged";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { MeshMap, type MapNode, type MapRoute } from "../components/MeshMap";
@@ -99,6 +102,7 @@ export function Traceroute() {
   }
 
   const name = nodes.find((n) => n.id === target)?.display ?? target;
+  const historyPage = usePaged(history.data?.traceroutes ?? [], 8);
   return (
     <>
       <PageHeader title="Traceroute" subtitle="Ask the mesh which way a packet takes to a node and back, and with what signal at each hop." />
@@ -107,7 +111,8 @@ export function Traceroute() {
         {nodes.length === 0 ? <EmptyState title="No nodes yet">A traceroute needs a node the radio has heard. The Nodes page can load a made-up mesh to try this.</EmptyState> : (
           <>
             <div className="grid gap-x-4 sm:grid-cols-[1fr_12rem]">
-              <Field label="To" htmlFor="tr-node"><select id="tr-node" className="field" value={target} onChange={(e) => { setTarget(e.target.value); setConfirm(false); }}><option value="">Choose a node…</option>{nodes.map((n) => <option key={n.id} value={n.id}>{n.display} ({n.hops === null ? "?" : n.hops === 0 ? "direct" : `${n.hops} hop${n.hops > 1 ? "s" : ""}`})</option>)}</select></Field>
+              <Field label="To" htmlFor="tr-node" help={`${nodes.length} nodes known. Type part of a name or id to find one.`}><NodePicker id="tr-node" label="Node to trace" value={target} onChange={(id) => { setTarget(id); setConfirm(false); }}
+                nodes={nodes.map((n) => ({ id: n.id, label: n.display, detail: `${n.id} · ${n.hops === null ? "?" : n.hops === 0 ? "direct" : `${n.hops} hop${n.hops > 1 ? "s" : ""}`}` }))} /></Field>
               <Field label="Hop limit" htmlFor="tr-hops" help="How many relays it may pass through. More reaches farther but loads the mesh more."><select id="tr-hops" className="field" value={hops} onChange={(e) => setHops(Number(e.target.value))}>{[1, 2, 3, 4, 5, 6, 7].map((h) => <option key={h} value={h}>{h}</option>)}</select></Field>
             </div>
             {simulated && <p role="status" className="mb-3 rounded-lg border border-line bg-bg p-3 text-sm">No radio is connected, so this makes up a route from the nodes it knows. <b>Nothing is transmitted.</b></p>}
@@ -137,7 +142,7 @@ export function Traceroute() {
         <SectionTitle hint="Every traceroute is saved, with where each node was at the time, so a route can be looked at again.">History</SectionTitle>
         {(history.data?.traceroutes.length ?? 0) === 0 ? <p className="text-sm text-muted">No traceroute yet.</p> : (
           <ul className="divide-y divide-line" aria-label="Traceroute history">
-            {history.data!.traceroutes.map((t) => (
+            {historyPage.slice.map((t) => (
               <li key={t.id}>
                 <button type="button" className={`flex w-full flex-wrap items-center gap-x-3 gap-y-1 py-2 text-left text-sm hover:bg-raised ${shown?.id === t.id ? "bg-raised" : ""}`} onClick={() => { setShown(t); window.scrollTo({ top: 0 }); }}>
                   <Badge tone={t.status === "ok" ? "teal" : "amber"}>{t.status}</Badge>
@@ -149,6 +154,7 @@ export function Traceroute() {
             ))}
           </ul>
         )}
+        <Pager page={historyPage.page} pages={historyPage.pages} total={historyPage.total} size={historyPage.size} onPage={historyPage.setPage} noun="traceroutes" />
       </Card>
     </>
   );

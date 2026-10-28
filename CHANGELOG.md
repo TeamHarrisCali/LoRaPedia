@@ -5,6 +5,25 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.2.0-beta.9] - 2026-10-28
+
+A test version for the beta channel: the MeshtasticLLM merge, phase 6, and easier-to-use lists.
+
+### Added (beta: the MeshtasticLLM merge, phase 6: Radio settings)
+- **Radio settings page.** Look at what is stored on the radio itself (region, role, LoRa preset, hop limit, power, position, telemetry
+  intervals and more) in tabs, with a search box to find a setting. **Changing is off until you turn it on** (Settings → Mesh and radio →
+  Radio settings editor). Then every change is type- and range-checked against the radio's own definitions, shown with what could go wrong,
+  confirmed, written in one transaction, and preceded by a saved copy you can restore (the newest 40 are kept; restoring a copy from another
+  radio needs "Restore anyway"). Also the radio's name, and a **fixed position** for a radio with no GPS (it is shared with the mesh, and it
+  lets the Map place the radio and link distances be worked out). Wi-Fi passwords, security keys, MQTT credentials and the Bluetooth PIN are
+  never shown, copied or written. Not yet tried against a real radio's firmware.
+
+### Changed
+- **Long lists are paged, big pages are tabbed, and choosing a node is a search.** The Nodes, Live Feed, Telemetry readings, Traceroute
+  history, Link quality, Radio node and Messages lists show a page at a time; Settings and Radio settings are split into tabs; and the
+  node drop-downs (Traceroute, Messages) are replaced by a box where you type part of a name or id. Long choices on the Radio settings page
+  (such as the region) are searchable too.
+
 ## [0.2.0-beta.8] - 2026-10-28
 
 A test version for the beta channel: the MeshtasticLLM merge, phase 5.

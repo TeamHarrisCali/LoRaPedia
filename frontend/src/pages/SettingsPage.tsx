@@ -4,6 +4,8 @@ import { BackupsCard } from "../components/BackupsCard";
 import { MeshAiCard } from "../components/MeshAiCard";
 import { MessagingCard } from "../components/MessagingCard";
 import { MeshDataCard } from "../components/MeshDataCard";
+import { RadioConfigCard } from "../components/RadioConfigCard";
+import { TabPanel, Tabs, rememberTab, rememberedTab } from "../components/Tabs";
 import { UpdatesCard } from "../components/UpdatesCard";
 import { Button, Card, Field, PageHeader, SectionTitle, Toggle } from "../components/ui";
 import { api, errorText } from "../lib/api";
@@ -13,6 +15,7 @@ import { applyTheme, getThemePref, ThemePref } from "../lib/theme";
 import { useToast } from "../lib/toast";
 import { usePoll } from "../lib/usePoll";
 
+const TABS = [{ id: "general", label: "General" }, { id: "mesh", label: "Mesh and radio" }, { id: "updates", label: "Updates and backups" }, { id: "data", label: "Data" }];
 const linkButton = "inline-flex items-center justify-center gap-2 rounded-lg border border-line bg-raised px-3.5 py-2 text-sm hover:border-muted";
 
 export function SettingsPage() {
@@ -21,6 +24,7 @@ export function SettingsPage() {
   const { draft, set, dirty, save: saveDraft, discard } = useDraft();
   const info = usePoll(() => api.get<{ version: string; data_dir: string; disk_free_gb: number }>("/api/system/info"), 60000);
   const [theme, setTheme] = useState<ThemePref>(getThemePref());
+  const [tab, setTab] = useState(() => rememberedTab("settings", "general", TABS.map((t) => t.id)));
   if (!draft) return <p className="text-muted" role="status">Loading…</p>;
 
   async function restore(e: ChangeEvent<HTMLInputElement>) {
@@ -41,7 +45,9 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" subtitle="Everything here can be changed without restarting." />
+      <Tabs label="Settings sections" tabs={TABS} active={tab} onChange={(id) => { setTab(id); rememberTab("settings", id); }} />
 
+      <TabPanel id="general" active={tab}>
       <Card className="mb-5">
         <SectionTitle hint="Stops one person from monopolising the radio.">Rate limits</SectionTitle>
         <div className="grid gap-x-6 sm:grid-cols-3">
@@ -84,16 +90,21 @@ export function SettingsPage() {
         </div>
       </Card>
 
-      <UpdatesCard draft={draft} set={set} />
+      </TabPanel>
 
-      <BackupsCard draft={draft} set={set} />
+      <TabPanel id="mesh" active={tab}>
+        <MeshAiCard draft={draft} set={set} />
+        <MessagingCard draft={draft} set={set} />
+        <RadioConfigCard draft={draft} set={set} />
+        <MeshDataCard draft={draft} set={set} />
+      </TabPanel>
 
-      <MeshAiCard draft={draft} set={set} />
+      <TabPanel id="updates" active={tab}>
+        <UpdatesCard draft={draft} set={set} />
+        <BackupsCard draft={draft} set={set} />
+      </TabPanel>
 
-      <MessagingCard draft={draft} set={set} />
-
-      <MeshDataCard draft={draft} set={set} />
-
+      <TabPanel id="data" active={tab}>
       <Card className="mb-5">
         <SectionTitle hint="Where LoRaPedia keeps its databases and Wikipedia files.">Data</SectionTitle>
         <dl className="mb-3 grid gap-1 text-sm sm:grid-cols-[10rem_1fr]">
@@ -112,6 +123,7 @@ export function SettingsPage() {
         <SectionTitle hint="Fills the Live Feed and Dashboard with sample conversations so you can see how they look.">Demo data</SectionTitle>
         <Button onClick={seed}>Load demo conversations</Button>
       </Card>
+      </TabPanel>
 
       <p className="text-sm text-muted">LoRaPedia {info.data?.version ?? ""} · Offline unless you press a download button or leave update checks on · No telemetry</p>
       <SaveBar dirty={dirty} onSave={() => void saveDraft()} onDiscard={discard} />

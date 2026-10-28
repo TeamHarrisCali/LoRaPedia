@@ -1,3 +1,5 @@
+import { Pager } from "../components/Pager";
+import { usePaged } from "../lib/usePaged";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { snrColor } from "../components/MeshMap";
@@ -40,6 +42,7 @@ export function Links() {
   const d = data.data;
   const links = d?.links ?? [];
   const sorted = useMemo(() => [...links].sort((a, b) => (b.distance_km ?? -1) - (a.distance_km ?? -1) || b.packets - a.packets), [links]);
+  const linkPage = usePaged(sorted, 15);
   const best = links.length ? Math.max(...links.map((l) => l.snr_avg)) : null, worst = links.length ? Math.min(...links.map((l) => l.snr_avg)) : null;
 
   return (
@@ -67,7 +70,7 @@ export function Links() {
               <table className="w-full text-left text-sm">
                 <thead className="text-muted"><tr><th className="py-1 pr-3 font-normal">Node</th><th className="pr-3 font-normal">Signal</th><th className="pr-3 font-normal">Range</th><th className="pr-3 font-normal">RSSI</th><th className="pr-3 font-normal">Packets</th><th className="pr-3 font-normal">Distance</th><th className="font-normal">Last heard</th></tr></thead>
                 <tbody>
-                  {sorted.map((l) => (
+                  {linkPage.slice.map((l) => (
                     <tr key={l.id} className="border-t border-line">
                       <td className="py-1 pr-3"><Link className="underline" to={`/nodes/${encodeURIComponent(l.id)}`}>{l.name}</Link></td>
                       <td className="pr-3"><span className="inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: snrColor(l.snr_avg) }} aria-hidden /> {l.snr_avg} dB</td>
@@ -78,6 +81,7 @@ export function Links() {
                 </tbody>
               </table>
             </div>
+            <Pager page={linkPage.page} pages={linkPage.pages} total={linkPage.total} size={linkPage.size} onPage={linkPage.setPage} noun="neighbours" />
           </Card>
         </>
       )}

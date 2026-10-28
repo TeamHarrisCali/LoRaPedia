@@ -1,3 +1,5 @@
+import { Pager } from "../components/Pager";
+import { usePaged } from "../lib/usePaged";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { LINE_COLORS, LineChart, type Line } from "../components/LineChart";
@@ -29,7 +31,8 @@ export function Telemetry() {
   const ids = chosen.join(",");
   const series = usePoll(() => api.get<MeshSeries>(`/api/mesh/telemetry/series?metric=${metric}&hours=${hours}${ids ? `&nodes=${encodeURIComponent(ids)}` : ""}`), 30000, true, [metric, hours, ids]);
   const sensors = usePoll(() => api.get<MeshSensors>(`/api/mesh/sensors?hours=${window}`), 30000, true, [window]);
-  const readings = usePoll(() => api.get<{ readings: MeshReading[] }>("/api/mesh/telemetry/readings?hours=24&limit=40"), 30000);
+  const readings = usePoll(() => api.get<{ readings: MeshReading[] }>("/api/mesh/telemetry/readings?hours=24&limit=200"), 30000);
+  const readingPage = usePaged(readings.data?.readings ?? [], 20);
 
   const meta = METRICS.find((m) => m.key === metric)!;
   const convert = (v: number) => metric === "temperature" && units.temperature === "F" ? v * 9 / 5 + 32 : metric === "uptime_s" ? v / 3600 : v;
@@ -95,7 +98,7 @@ export function Telemetry() {
               <table className="w-full text-left text-sm">
                 <thead className="text-muted"><tr><th className="py-1 pr-3 font-normal">When</th><th className="pr-3 font-normal">Node</th><th className="pr-3 font-normal">Battery</th><th className="pr-3 font-normal">Voltage</th><th className="pr-3 font-normal">Channel</th><th className="pr-3 font-normal">Temp</th><th className="pr-3 font-normal">Humidity</th><th className="font-normal">Signal</th></tr></thead>
                 <tbody>
-                  {(readings.data?.readings ?? []).map((r, i) => (
+                  {readingPage.slice.map((r, i) => (
                     <tr key={`${r.ts}-${r.node_id}-${i}`} className="border-t border-line">
                       <td className="py-1 pr-3 text-muted">{timeAgo(r.ts)}</td><td className="pr-3">{r.node_label ?? r.node_name ?? r.node_short ?? r.node_id}</td>
                       <td className="pr-3">{r.battery == null ? "" : r.battery > 100 ? "powered" : `${Math.round(r.battery)}%`}</td><td className="pr-3">{r.voltage == null ? "" : `${r.voltage.toFixed(2)} V`}</td>
@@ -106,6 +109,7 @@ export function Telemetry() {
                 </tbody>
               </table>
             </div>
+            <Pager page={readingPage.page} pages={readingPage.pages} total={readingPage.total} size={readingPage.size} onPage={readingPage.setPage} noun="readings" />
           </Card>
         </>
       )}

@@ -75,6 +75,7 @@ not be indexed yet.
 | `fitter.py` | Byte counting, text cleaning, truncation, splitting into parts. Pure functions. |
 | `triggers.py` | Question / command / ignore decision for a message. Pure. |
 | `meshask.py` | Questions about the mesh itself: a rule-based router and a fixed menu of read-only lookups over `mesh.db`. No model, no transmitting; replies use only a node's own name, never your label. |
+| `radio/config.py` | The Radio settings page: the radio's own configuration (allow-listed sections, validated against its protobuf definitions, a saved copy before every write, one settings transaction, rollback), its name and fixed position. Writes are off until switched on in Settings; only the web API calls it. |
 | `messaging.py` | What the operator types: a direct message to one node, a chat window (what the node says back is kept for the operator, not answered), and an opt-in public post. The only caller of `post_public`; the engine gets only a callback to step aside. |
 | `memory.py` | Each sender's last few answered questions for follow-ups. RAM only, per sender, expires after idle time. |
 | `ratelimit.py` | Per-node sliding window. Takes an injectable clock. |

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { DeliveryBadge } from "../components/DeliveryBadge";
+import { NodePicker } from "../components/NodePicker";
+import { Pager } from "../components/Pager";
+import { usePaged } from "../lib/usePaged";
 import { Badge, Button, Card, EmptyState, Field, PageHeader, SectionTitle } from "../components/ui";
 import { api, errorText } from "../lib/api";
 import { clockTime, timeAgo, utf8Bytes } from "../lib/format";
@@ -160,11 +163,15 @@ export function Messages() {
   const live = useLive();
   const threads = usePoll(() => api.get<MessageThread[]>("/api/messages/threads"), 10000, true, [live.messageTick]);
   const nodes = usePoll(() => api.get<MeshNodes>("/api/mesh/nodes"), 30000);
-  const [pick, setPick] = useState("");
-  const [typed, setTyped] = useState("");
+  const [target, setTarget] = useState("");
+  const [search, setSearch] = useState("");
   const list = useMemo(() => (nodes.data?.nodes ?? []).filter((n) => !n.us).sort((a, b) => a.display.localeCompare(b.display)), [nodes.data]);
-  const target = (typed.trim().toLowerCase() || pick);
   const ok = NODE_ID.test(target);
+  const found = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (threads.data ?? []).filter((t) => !q || `${t.name} ${t.node_id} ${t.text}`.toLowerCase().includes(q));
+  }, [threads.data, search]);
+  const paged = usePaged(found, 6, search);
 
   return (
     <>
@@ -173,22 +180,21 @@ export function Messages() {
         <div className="min-w-0">
           <Card>
             <SectionTitle>New message</SectionTitle>
-            <Field label="To" htmlFor="msg-node">
-              <select id="msg-node" className="field" value={pick} onChange={(e) => { setPick(e.target.value); setTyped(""); }}>
-                <option value="">Choose a node…</option>
-                {list.map((n) => <option key={n.id} value={n.id}>{n.display}</option>)}
-              </select>
-            </Field>
-            <Field label="or its id" htmlFor="msg-id" help="Like !a1b2c3d4.">
-              <input id="msg-id" className="field font-mono" placeholder="!a1b2c3d4" value={typed} onChange={(e) => { setTyped(e.target.value); setPick(""); }} />
+            <Field label="To" htmlFor="msg-node" help={`${list.length} nodes known. Type part of a name, or an id such as !a1b2c3d4.`}>
+              <NodePicker id="msg-node" label="Node to write to" allowId value={target} onChange={setTarget}
+                nodes={list.map((n) => ({ id: n.id, label: n.display, detail: n.id }))} />
             </Field>
             <Button variant="primary" disabled={!ok} onClick={() => nav(`/messages/${encodeURIComponent(target)}`)}>Open</Button>
           </Card>
           <Card className="mt-5">
             <SectionTitle>Conversations</SectionTitle>
             {threads.data && threads.data.length === 0 && <p className="text-sm text-muted">None yet.</p>}
+            {(threads.data?.length ?? 0) > 6 && (
+              <input aria-label="Search conversations" type="search" className="field mb-2" placeholder="Search name, id or text…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            )}
+            {threads.data && threads.data.length > 0 && found.length === 0 && <p className="text-sm text-muted">No conversation matches.</p>}
             <ul className="space-y-1" aria-label="Conversations">
-              {(threads.data ?? []).map((t) => (
+              {paged.slice.map((t) => (
                 <li key={t.node_id}>
                   <Link to={`/messages/${encodeURIComponent(t.node_id)}`} aria-current={t.node_id === id ? "page" : undefined}
                     className={`block rounded-lg border px-3 py-2 text-sm ${t.node_id === id ? "border-amber/60 bg-amber/10" : "border-line hover:border-muted"}`}>
@@ -199,6 +205,7 @@ export function Messages() {
                 </li>
               ))}
             </ul>
+            <Pager page={paged.page} pages={paged.pages} total={paged.total} size={paged.size} onPage={paged.setPage} noun="conversations" />
           </Card>
         </div>
         <div className="min-w-0">

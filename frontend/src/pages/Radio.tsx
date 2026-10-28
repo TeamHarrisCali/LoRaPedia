@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { Pager } from "../components/Pager";
+import { usePaged } from "../lib/usePaged";
 import { Bubble } from "../components/Bubble";
 import { ByteMeter } from "../components/ByteMeter";
 import { SaveBar } from "../components/SaveBar";
@@ -24,6 +26,12 @@ export function Radio() {
   const nodes = usePoll(() => api.get<RadioNode[]>("/api/radio/nodes"), 8000);
   const st = live.radio ?? status.data;
   const [prefixText, setPrefixText] = useState<string | null>(null);
+  const [nodeQuery, setNodeQuery] = useState("");
+  const foundNodes = useMemo(() => {
+    const words = nodeQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return (nodes.data ?? []).filter((n) => words.every((w) => `${n.short} ${n.long} ${n.id}`.toLowerCase().includes(w)));
+  }, [nodes.data, nodeQuery]);
+  const nodePage = usePaged(foundNodes, 12, nodeQuery);
   if (!draft) return <p className="text-muted" role="status">Loading…</p>;
 
   async function toggleNode(n: RadioNode, which: "block" | "allow", on: boolean) {
@@ -91,6 +99,12 @@ export function Radio() {
         {!nodes.data || nodes.data.length === 0 ? (
           <EmptyState title="No nodes yet">{st?.active === "simulator" ? "Nodes appear once a real radio is connected." : "Nodes show up as the radio hears them."}</EmptyState>
         ) : (
+          <>
+          <div className="mb-3 flex flex-wrap items-center gap-3">
+            <input aria-label="Search nodes" type="search" className="field max-w-xs" placeholder="Search name or id…" value={nodeQuery} onChange={(e) => setNodeQuery(e.target.value)} />
+            <span className="text-sm text-muted">{foundNodes.length} of {nodes.data.length}</span>
+          </div>
+          {foundNodes.length === 0 && <p className="text-sm text-muted">No node matches.</p>}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <caption className="sr-only">Nodes heard by this radio</caption>
@@ -98,7 +112,7 @@ export function Radio() {
                 <th className="py-2 pr-3 font-medium">Node</th><th className="pr-3 font-medium">ID</th><th className="pr-3 font-medium">Heard</th><th className="pr-3 font-medium">Hops</th><th className="pr-3 font-medium">Block</th><th className="font-medium">Allow</th>
               </tr></thead>
               <tbody>
-                {nodes.data.map((n) => (
+                {nodePage.slice.map((n) => (
                   <tr key={n.id} className="border-t border-line">
                     <td className="py-2 pr-3"><span className="flex items-center gap-2"><SignalGlyph snr={n.snr} /><span><span className="font-semibold">{n.short}</span>{n.is_self && <> <Badge tone="teal">this node</Badge></>}<span className="block text-xs text-muted">{n.long}</span></span></span></td>
                     <td className="pr-3 font-mono text-xs">{n.id}</td>
@@ -111,6 +125,8 @@ export function Radio() {
               </tbody>
             </table>
           </div>
+          <Pager page={nodePage.page} pages={nodePage.pages} total={nodePage.total} size={nodePage.size} onPage={nodePage.setPage} noun="nodes" />
+          </>
         )}
         {(draft.blocklist.length > 0 || draft.allowlist.length > 0) && (
           <p className="mt-3 text-sm text-muted"><Dot tone="amber" label="Active" className="mr-2" />Blocked: <span className="font-mono">{draft.blocklist.join(", ") || "none"}</span> · Allowed: <span className="font-mono">{draft.allowlist.join(", ") || "everyone"}</span></p>
