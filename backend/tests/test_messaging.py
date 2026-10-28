@@ -57,22 +57,24 @@ _OPEN: list[RadioManager] = []
 
 
 def listeners(topic):
-    """Who is still subscribed to a meshtastic pypubsub topic (the topics are global, shared by every test in the process)."""
+    """Who is subscribed to a meshtastic pypubsub topic (the topics are global, shared by every test in the process)."""
     from pubsub import pub
     try:
-        return list(pub.getDefaultTopicMgr().getTopic(topic).getListeners())
+        return {id(l.getCallable()) for l in pub.getDefaultTopicMgr().getTopic(topic).getListeners()}
     except Exception:
-        return []
+        return set()
 
 
 @pytest.fixture(autouse=True)
 async def close_radios():
     """Every radio a test connects is closed again. A radio left subscribed is garbage collected some time later, and the next test that
     publishes on the shared topic then fails with pypubsub's "Dead Listener called" (it showed up as a flaky test_radio.py on one Python)."""
+    before = {t: listeners(t) for t in ("meshtastic.receive.text", "meshtastic.receive")}
     yield
     while _OPEN:
         await _OPEN.pop().stop()
-    assert listeners("meshtastic.receive.text") == [] and listeners("meshtastic.receive") == []
+    for t, was in before.items():
+        assert listeners(t) <= was, f"a radio connected by this test is still subscribed to {t}"  # only this test's: other files may leave their own
 
 
 class Clock:

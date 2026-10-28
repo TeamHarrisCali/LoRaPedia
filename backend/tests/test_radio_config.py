@@ -314,17 +314,24 @@ def api_client(tmp_path, node=None):
     return TestClient(create_app(str(tmp_path), llm=MockLLM(), embedder=HashEmbedder(), radio_options=opts)), node
 
 
+def subscribers(topic):
+    """Who is subscribed to a meshtastic pypubsub topic. The topics are global, shared by every test in the process."""
+    from pubsub import pub
+    try:
+        return {id(l.getCallable()) for l in pub.getDefaultTopicMgr().getTopic(topic).getListeners()}
+    except Exception:
+        return set()  # the topic was never created: nobody subscribed
+
+
 @pytest.fixture(autouse=True)
 def no_radio_left_subscribed():
-    """A radio left subscribed to pypubsub's global topics is garbage collected later and breaks whichever test publishes there next."""
+    """A radio left subscribed is garbage collected later and breaks whichever test publishes on the shared topic next. Only what THIS test
+    added is checked: other test files may leave their own behind."""
+    topics = ("meshtastic.receive.text", "meshtastic.receive")
+    before = {t: subscribers(t) for t in topics}
     yield
-    from pubsub import pub
-    for topic in ("meshtastic.receive.text", "meshtastic.receive"):
-        try:
-            found = list(pub.getDefaultTopicMgr().getTopic(topic).getListeners())
-        except Exception:
-            continue  # the topic was never created: nobody subscribed
-        assert found == [], topic
+    for t in topics:
+        assert subscribers(t) <= before[t], f"a radio connected by this test is still subscribed to {t}"
 
 
 def wait_connected(c):
