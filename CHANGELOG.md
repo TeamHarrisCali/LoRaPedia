@@ -5,6 +5,8 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-28
+
 ### Added
 - Moving a `./run.sh` install into Docker: `scripts/migrate-to-docker.sh` copies the data folder into the compose volume (the
   source is never changed) and fixes what points at the old machine (the library's absolute file paths and a saved `localhost`

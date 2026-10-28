@@ -36,6 +36,13 @@ the Wikipedia library, the model, and the radio. A non-technical person can set 
 No GPU is fine. Answers just take longer (seconds to a minute on a CPU), which suits a mesh where messages
 already take seconds to travel. The setup wizard detects your hardware and recommends a model that fits.
 
+**No GPU, or not an NVIDIA one, with Docker:** nothing to do. The shipped compose file asks for no GPU, so Ollama runs both
+models on the CPU. Only people who add the `deploy:` block from `docker-compose.override.example.yml` get the NVIDIA path, and
+that needs the NVIDIA Container Toolkit. Indexing is the part that feels it: measured here, the embedding model ran about 20
+chunks/s on CPU against 73 to 130 on an NVIDIA GPU, so a large Wikipedia file takes several times longer (it resumes if
+interrupted, and the first pass makes every article findable early). AMD and Intel GPUs are not set up in the compose files and
+have not been tested; they run on CPU unless you write your own override for them.
+
 Software: **Docker** (easiest), or **Python 3.11+** and **Node.js 20+** for `./run.sh`. You also need
 [Ollama](https://ollama.com) to run the language model (included in the Docker setup).
 
