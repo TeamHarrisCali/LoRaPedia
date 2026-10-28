@@ -41,7 +41,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 REPO = "TeamHarrisCali/LoRaPedia"           # the one repository this updates from
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
-BETA_API_URL = f"https://api.github.com/repos/{REPO}/releases?per_page=5"
+# GitHub lists releases in an order of its own that puts beta.10 BELOW beta.2 (it compares "beta.10" as text), so a short window hides every
+# beta numbered 10 or more. Ask for the whole list the API allows and choose the highest ourselves, numerically.
+BETA_API_URL = f"https://api.github.com/repos/{REPO}/releases?per_page=100"
+BETA_WINDOW = 100
 CHANNELS = ("stable", "beta")
 IMAGE_REPO = "ghcr.io/teamharriscali/lorapedia"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
@@ -54,7 +57,7 @@ NUM = r"(0|[1-9][0-9]{0,8})"
 TAG_RE = re.compile(r"\Av" + NUM + r"\." + NUM + r"\." + NUM + r"\Z", re.ASCII)
 BETA_TAG_RE = re.compile(r"\Av" + NUM + r"\." + NUM + r"\." + NUM + r"-beta\." + NUM + r"\Z", re.ASCII)
 DIGEST_RE = re.compile(r"\A[a-z0-9./_-]+@sha256:[0-9a-f]{64}\Z", re.ASCII)
-MAX_RESPONSE = 1024 * 1024  # the beta channel reads a short list of releases, each with its notes
+MAX_RESPONSE = 4 * 1024 * 1024  # the beta channel reads the list of releases, each with its notes (160 KB for 22 of them)
 
 
 def valid_tag(tag) -> bool:
@@ -261,10 +264,10 @@ class Updater:
         return data["tag_name"]
 
     def _newest_on_beta(self) -> str:
-        """The highest accepted release among the latest few: a stable release, or a beta that GitHub flags as a pre-release."""
+        """The highest accepted release in the list: a stable release, or a beta that GitHub flags as a pre-release."""
         data = self._github_json(BETA_API_URL)
         best = None
-        for entry in (data if isinstance(data, list) else [])[:20]:
+        for entry in (data if isinstance(data, list) else [])[:BETA_WINDOW]:
             if not isinstance(entry, dict) or entry.get("draft") is not False:
                 continue
             tag, pre = entry.get("tag_name"), entry.get("prerelease")

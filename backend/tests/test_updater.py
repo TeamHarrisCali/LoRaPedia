@@ -162,6 +162,14 @@ def test_the_beta_channel_takes_the_newest_accepted_release(tmp_path):
     assert up.latest_tag("beta") == "v0.2.0-beta.10"
 
 
+def test_a_beta_numbered_ten_or_more_is_found_although_github_lists_it_below_beta_2(tmp_path):
+    # the order GitHub really returned: it compares "beta.10" as text, so beta.10 sits below beta.2 and above beta.1
+    order = [rel(f"v0.2.0-beta.{n}") for n in (9, 8, 7, 6, 5, 4, 3, 2, 10, 1)] + [rel("v0.1.11"), rel("v0.1.10")]
+    up, _, _ = make(tmp_path, releases=order)
+    assert up.latest_tag("beta") == "v0.2.0-beta.10"
+    assert "per_page=100" in U.BETA_API_URL and U.BETA_WINDOW >= 100                  # the old window of five never reached it
+
+
 def test_a_stable_release_wins_on_the_beta_channel_once_it_is_newer_than_the_betas(tmp_path):
     up, _, _ = make(tmp_path, releases=[rel("v0.2.0"), rel("v0.2.0-beta.4"), rel("v0.1.9")])
     assert up.latest_tag("beta") == "v0.2.0"

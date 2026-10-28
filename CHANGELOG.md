@@ -5,6 +5,20 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.3.0-beta.1] - 2026-10-28
+
+A test version for the beta channel. **It replaces 0.2.0-beta.10, which no node could see.** Everything in beta.10 (per-node limits, the Limits
+page, the end of the MeshtasticLLM merge) is here.
+
+### Fixed
+- **A beta numbered 10 or more was invisible to every update check.** GitHub lists releases in an order that compares `beta.10` as text, so
+  `v0.2.0-beta.10` came out below `beta.2`, and the app and the updater each read only the newest five releases. They now read up to 100
+  and choose the highest themselves, numerically. **Nodes running 0.2.0-beta.9 or older cannot see beta.10, and still read five**: that is
+  why this release is numbered 0.3.0-beta.1 (it lists first). To get the fixed updater, run `docker compose pull updater && docker compose up
+  -d updater` once. docs/RELEASING.md now says how to number betas.
+- Tests only: every test that connects a radio now unsubscribes it when it ends (a leftover caused a flaky "Dead Listener called" on Python
+  3.11 and 3.12).
+
 ## [0.2.0-beta.10] - 2026-10-28
 
 A test version for the beta channel: the MeshtasticLLM merge, phase 7. **This completes the merge.**

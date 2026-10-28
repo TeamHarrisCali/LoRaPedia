@@ -456,6 +456,17 @@ def test_the_beta_channel_picks_the_highest_acceptable_release_and_builds_its_ow
     assert U.clean_release([rel("v0.2.0"), rel("v0.2.0-beta.4")], "beta")["tag"] == "v0.2.0"  # the final release outranks its betas
 
 
+# The order GitHub really returned for this repository: it compares "beta.10" as text, so beta.10 sits below beta.2 and above beta.1.
+GITHUB_ORDER = [rel("v0.2.0-beta.9"), rel("v0.2.0-beta.8"), rel("v0.2.0-beta.7"), rel("v0.2.0-beta.6"), rel("v0.2.0-beta.5"), rel("v0.2.0-beta.4"),
+                rel("v0.2.0-beta.3"), rel("v0.2.0-beta.2"), rel("v0.2.0-beta.10"), rel("v0.2.0-beta.1"), rel("v0.1.11", pre=False), rel("v0.1.10", pre=False)]
+
+
+def test_a_beta_numbered_ten_or_more_is_found_although_github_lists_it_below_beta_2():
+    assert U.clean_release(GITHUB_ORDER, "beta")["tag"] == "v0.2.0-beta.10"
+    assert "per_page=100" in U.BETA_URL and U.BETA_WINDOW >= 100                      # the old window of five never reached it
+    assert GITHUB_ORDER.index(next(r for r in GITHUB_ORDER if r["tag_name"] == "v0.2.0-beta.10")) >= 5
+
+
 @pytest.mark.parametrize("doc", [[rel("v0.2.0-beta.1", pre=False)], [rel("v0.2.0", pre=True)], [rel("v0.2.0-beta.1", draft=True)],
                                  [rel("nightly")], [rel("v0.2.0-rc.1")], [], {"tag_name": "v0.2.0-beta.1"}, "x", None, [None, 5]])
 def test_the_beta_channel_ignores_what_it_does_not_recognise(doc):

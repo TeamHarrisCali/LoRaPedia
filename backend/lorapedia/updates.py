@@ -35,7 +35,10 @@ log = logging.getLogger(__name__)
 
 REPO = "TeamHarrisCali/LoRaPedia"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
-BETA_URL = f"https://api.github.com/repos/{REPO}/releases?per_page=5"
+# GitHub lists releases in an order of its own that puts beta.10 BELOW beta.2 (it compares "beta.10" as text), so a short window hides every
+# beta numbered 10 or more. Ask for the whole list the API allows and choose the highest ourselves, numerically.
+BETA_URL = f"https://api.github.com/repos/{REPO}/releases?per_page=100"
+BETA_WINDOW = 100
 CHANNELS = ("stable", "beta")
 RELEASE_URL_PREFIX = f"https://github.com/{REPO}/releases/"
 USER_AGENT = f"lorapedia/{__version__}"
@@ -45,7 +48,7 @@ RETRY_UNREACHED_S = 3 * 3600     # after an attempt that never reached GitHub (o
 MIN_GAP_S = 5                    # "Check now" cannot be repeated faster than this
 MAX_BLOCK_S = 3600               # how long a "rate limited" answer can hold the check back
 MAX_RESPONSE_BYTES = 256 * 1024
-MAX_LIST_BYTES = 1024 * 1024     # the beta channel reads a short list of releases, each with its notes
+MAX_LIST_BYTES = 4 * 1024 * 1024  # the beta channel reads the list of releases, each with its notes (160 KB for 22 of them)
 NOTES_MAX = 1500
 IDLE_BEFORE_AUTO_APPLY_S = 300   # no question answered for this long before an automatic update is started
 BACKUPS_KEPT = 5
@@ -121,7 +124,7 @@ def clean_release(data, channel: str = "stable"):
     flags as a pre-release (a beta tag not flagged, or a stable tag flagged as one, is not trusted)."""
     if channel == "beta":
         best = None
-        for entry in (data if isinstance(data, list) else [])[:20]:
+        for entry in (data if isinstance(data, list) else [])[:BETA_WINDOW]:
             if not isinstance(entry, dict) or entry.get("draft") is not False:
                 continue
             tag, pre = entry.get("tag_name"), entry.get("prerelease")

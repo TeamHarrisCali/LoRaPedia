@@ -38,6 +38,13 @@ python3 scripts/release_check.py check vX.Y.Z-beta.N
 git tag -a vX.Y.Z-beta.N -m "LoRaPedia X.Y.Z-beta.N" && git push origin vX.Y.Z-beta.N
 ```
 
+**Beta numbers and GitHub's list.** GitHub's release list compares `beta.10` as text, so it lists `v0.2.0-beta.10` *below* `beta.2`. An app
+or updater that reads only the first few releases then never sees it: that is what hid 0.2.0-beta.10 from every node (they read 5; they read
+100 now, and choose the highest themselves, numerically). Installs older than 0.3.0-beta.1 still read 5, so for them a pre-release must be
+listed in the top five: **keep the beta number at 9 or below and raise the minor version instead** (`v0.3.0-beta.1`, ..., `v0.3.0-beta.9`,
+then `v0.4.0-beta.1`). After publishing, check the order the API gives
+(`gh api "repos/TeamHarrisCali/LoRaPedia/releases?per_page=5" --jq '.[].tag_name'`): the new tag should be first.
+
 The workflow accepts a tag whose name contains `-beta.` from the tip of `beta` (or `main`); a stable tag must be on `main`, and any
 other pre-release name is refused for the beta branch. The release is marked as a pre-release and `latest` does not move. The app
 and updater accept exactly `vX.Y.Z-beta.N` on the beta channel and nothing else. To release the finished work, merge `beta` into
