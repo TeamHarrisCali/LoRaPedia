@@ -15,7 +15,7 @@ It is inspired by Project NOMAD, but focused on one job: answers delivered over 
 ```
   Person on the mesh:   what is a quasar?
   LoRaPedia:            A quasar is an extremely luminous active galactic nucleus powered by a
-                        supermassive black hole that is accreting matter. [wp:Quasar]      132/200 B
+                        supermassive black hole that is accreting matter.                  118/200 B
 ```
 
 A web interface runs the whole thing: a setup wizard, a live feed of every question and answer, and pages for
@@ -179,6 +179,7 @@ people write `?what is a quasar` or `!wiki quasar`. The reply goes to the channe
 | `?help` | Short usage hint |
 | `?more` | Next part of a long answer (when parts are sent on request) |
 | `?stats` | Questions today, average time, queue length |
+| `?ping` | A range test: how your message reached the node ("heard you directly: SNR 5.5 dB, RSSI -42 dBm", or how many relays it passed through and the signal of the last hop). Needs no model |
 
 **When Wikipedia has nothing.** If a question matches no article, LoRaPedia does not just say "not found". Once every
 article is searchable (after pass 1), it asks the language model to answer **from its own memory**, and the reply
@@ -221,13 +222,19 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 | **Radio** | Connection (USB / network / Bluetooth / simulator), channel, trigger mode and prefixes, hop limit, **byte limit (50 to 233)**, multi-part and its cap, pause between sends, node block/allow lists |
 | **Model** | Language and embedding model (install with progress), temperature, max tokens, passages retrieved, system prompt (with *Reset to default*), a "try it" box showing the byte count |
 | **Knowledge** | Wikipedia files, downloads, indexing, a search playground |
-| **Settings** | Rate limits, queue length, source tags (`[wp:Title]`), AI-memory fallback, theme, backup and restore, CSV export of the log, demo data |
+| **Settings** | Rate limits, queue length, AI-memory fallback, theme, backups, CSV export of the log, demo data |
 
 Environment variables exist for deployment only: `LORAPEDIA_DATA` (data folder), `LORAPEDIA_HOST`,
 `LORAPEDIA_PORT`, and `LORAPEDIA_OLLAMA_URL` (where Ollama is, used for first-run defaults).
 
-**Backups.** *Settings → Back up settings* downloads your configuration. To back up everything, copy the data
-directory (databases and Wikipedia files).
+**Backups.** *Settings → Backups* takes, downloads, uploads and restores backups of your **settings and question log** (a few
+hundred KB). One is taken automatically every day (the newest seven are kept), before every update, and before every restore, so a
+restore can always be undone. They are kept in `backups/` inside the data folder, so they protect against a bad change or update,
+not against losing the disk or Docker volume: download one now and then. A backup does **not** include the Wikipedia files or their
+search index (gigabytes; download and re-index them). To save those too, copy the whole data directory.
+
+**Sources.** The replies over the radio carry no source tag, because every byte is airtime. The Live Feed shows which Wikipedia
+articles each answer came from, the one that best supports the answer first.
 
 ## Updates
 

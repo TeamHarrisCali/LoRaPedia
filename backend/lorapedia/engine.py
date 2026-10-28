@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 from . import fitter
@@ -12,6 +12,7 @@ from .llm.base import LLM
 from .radio.base import Packet, Radio
 from .ratelimit import RateLimiter
 from .retrieval.base import Retriever
+from .sources import order_sources
 from .store import Store
 from .triggers import parse_message
 
@@ -27,7 +28,7 @@ FALLBACK_SYSTEM = (
     "I don't know. For medical, legal, electrical or other safety-critical questions give only basic general "
     "information and say to ask a professional."
 )
-HELP_TEXT = "Ask me a question by DM. Commands: ?help ?more ?stats. Answers come from offline Wikipedia."
+HELP_TEXT = "Ask me a question by DM. Commands: ?help ?more ?stats ?ping. Answers come from offline Wikipedia."
 MORE_HINT = " ?more"
 CHUNK_CHARS = 700  # per-chunk context cap so small models stay fast
 
@@ -41,6 +42,7 @@ class Generated:
     raw: str  # cleaned LLM text before fitting
     fallback: bool = False  # answered from the model's own memory because the library had nothing
     found: bool = True  # the answer came from retrieved Wikipedia text
+    sources: list[str] = field(default_factory=list)  # article titles behind it, best first; for the web panel only
 
 
 @dataclass
@@ -133,9 +135,25 @@ class Engine:
         await self._sleep(wait)
         self.queue.put_nowait(job)
 
+    @staticmethod
+    def _ping_reply(packet: Packet) -> str:
+        """A range test: how the asker's own message reached this radio. Needs no model and no library."""
+        if packet.snr is None and packet.rssi is None and packet.hops is None:
+            return "pong! (no signal information for this message)"
+        signal = ", ".join(x for x in (f"SNR {packet.snr:g} dB" if packet.snr is not None else "",
+                                       f"RSSI {packet.rssi} dBm" if packet.rssi is not None else "") if x)
+        if packet.hops == 0:
+            return f"pong! Heard you directly: {signal}."
+        if packet.hops:
+            relays = f"{packet.hops} relay" + ("s" if packet.hops != 1 else "")
+            return f"pong! Passed through {relays}; the last hop was {signal}." if signal else f"pong! Passed through {relays}."
+        return f"pong! Signal: {signal}."  # hop count unknown (older firmware)
+
     def _command_reply(self, name: str, packet: Packet, s: Settings) -> str:
         if name == "help":
             return HELP_TEXT
+        if name == "ping":
+            return self._ping_reply(packet)
         if name == "stats":
             st = self.store.today_stats()
             return f"{st['queries']} Qs today, avg {st['avg_latency_s']}s, queue {self.pending_count}."
@@ -177,7 +195,7 @@ class Engine:
         latency = round(self._clock() - started, 2)
         entry = dict(
             sender_id=job.packet.sender_id, sender_name=job.packet.sender_name, question=job.question,
-            parts=parts, byte_limit=s.byte_limit, latency_s=latency, sources=list(dict.fromkeys(c.title for c in chunks)) if gen.found else [],  # unique, best first; none for "not found"
+            parts=parts, byte_limit=s.byte_limit, latency_s=latency, sources=gen.sources,  # unique, best first; none for "not found"
             debug={"prompt": prompt, "compressed": compressed, "fallback": gen.fallback,
                    "chunks": [{"title": c.title, "text": c.text, "score": c.score} for c in chunks]},
         )
@@ -221,9 +239,7 @@ class Engine:
         # step 3: guaranteed-safe truncate + split (never exceeds the limit)
         # A guess is the least reliable thing we send, so it never uses more than one message of airtime.
         parts = fitter.fit_answer(raw, limit, 1 if fallback else max_parts)
-        if s.source_tags and found:
-            parts = fitter.append_tag(parts, f"[wp:{chunks[0].title}]", limit)
-        return Generated(parts, chunks, prompt, compressed, raw, fallback, found)
+        return Generated(parts, chunks, prompt, compressed, raw, fallback, found, order_sources(raw, chunks) if found else [])
 
     async def _ai_memory(self, question: str, s: Settings, budget: int) -> str | None:
         """A short answer from the model's own knowledge, or None if it does not know."""

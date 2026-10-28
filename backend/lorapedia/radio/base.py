@@ -12,6 +12,10 @@ class Packet:
     is_dm: bool
     channel: int = 0
     simulated: bool = False  # injected from the UI simulator: replies never go out over a real radio
+    # How the radio received it (None when unknown): signal-to-noise (dB), RSSI (dBm), relays passed through (0 = heard directly).
+    snr: float | None = None
+    rssi: int | None = None
+    hops: int | None = None
 
 
 class Radio(Protocol):

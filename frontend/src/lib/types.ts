@@ -12,8 +12,9 @@ export interface Settings {
   max_parts: number;
   auto_send_parts: boolean;
   send_delay_s: number;
-  source_tags: boolean;
   ai_fallback: boolean;
+  auto_backup: boolean;
+  backup_keep: number;
   update_check: boolean;
   auto_update: boolean;
   wikipedia_update_check: boolean;
@@ -35,6 +36,9 @@ export interface Settings {
   max_tokens: number;
   system_prompt: string;
 }
+
+export interface BackupItem { name: string; kind: "manual" | "auto" | "pre-update" | "before-restore" | "uploaded"; size: number; ts: number }
+export interface BackupStatus { items: BackupItem[]; auto_backup: boolean; backup_keep: number; folder: string; total_size: number }
 
 export interface Health {
   radio: "meshtastic" | "simulator";

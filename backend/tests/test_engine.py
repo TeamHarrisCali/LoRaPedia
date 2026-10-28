@@ -54,7 +54,7 @@ async def test_dm_question_gets_single_reply_within_limit():
     await drain(eng)
     (sent,) = eng.radio.sent
     assert sent.to == "!a1b2" and byte_len(sent.text) <= 200
-    assert "quasar" in sent.text.lower() and "[wp:Quasar]" in sent.text
+    assert "quasar" in sent.text.lower() and "[wp:" not in sent.text  # the source is for the web panel, not for airtime
 
 
 async def test_sources_are_unique_even_when_several_chunks_share_an_article():
@@ -352,7 +352,7 @@ async def test_a_library_answer_is_never_marked_as_a_guess():
     llm = Scripted("A quasar is an extremely luminous active galactic nucleus.")
     eng = make_with_state("complete", llm)
     (text,) = await ask(eng, "what is a quasar?")
-    assert "[AI memory" not in text and "[wp:Quasar]" in text and len(llm.calls) == 1
+    assert "[AI memory" not in text and "[wp:" not in text and len(llm.calls) == 1
     assert eng.store.recent_queries(1)[0]["debug"]["fallback"] is False
 
 
@@ -388,3 +388,33 @@ async def test_not_found_rows_do_not_list_the_irrelevant_chunks_as_sources():
     await ask(eng, "quasar")
     row = eng.store.recent_queries(1)[0]
     assert row["sources"] == [] and row["debug"]["chunks"]  # still inspectable in the Live Feed's debug view
+
+
+async def _ping(**signal):
+    eng = make()
+    assert await eng.submit(Packet("!a1b2", "BOB", "?ping", True, **signal)) == "command"
+    await drain(eng)
+    (sent,) = eng.radio.sent
+    assert sent.to == "!a1b2"
+    return sent.text
+
+
+async def test_ping_reports_a_direct_hearing_with_its_signal():
+    assert await _ping(snr=5.5, rssi=-42, hops=0) == "pong! Heard you directly: SNR 5.5 dB, RSSI -42 dBm."
+
+
+async def test_ping_reports_relays_and_that_the_signal_is_the_last_hop():
+    assert await _ping(snr=-3.0, rssi=-101, hops=2) == "pong! Passed through 2 relays; the last hop was SNR -3 dB, RSSI -101 dBm."
+    assert "1 relay;" in await _ping(snr=1.0, rssi=-90, hops=1)
+
+
+async def test_ping_still_answers_when_the_radio_gave_no_signal_information():
+    assert await _ping() == "pong! (no signal information for this message)"
+    assert await _ping(snr=4.0, rssi=-80) == "pong! Signal: SNR 4 dB, RSSI -80 dBm."
+
+
+async def test_ping_needs_no_model_and_is_not_a_question():
+    eng = make()
+    await eng.submit(Packet("!a1b2", "BOB", "?ping", True, snr=1.0, rssi=-90, hops=0))
+    await drain(eng)
+    assert eng.store.recent_queries(1) == []  # nothing was logged as a question

@@ -71,8 +71,7 @@ printf 'LORAPEDIA_IMAGE=lorapedia-rollback:previous\n' >> .env     # or an older
 docker compose up -d lorapedia
 ```
 
-Your settings backup from before the update is in the data volume under `backups/` if you ever need it (restore by replacing
-`lorapedia.db` while the app is stopped).
+Your settings backup from before the update is in the data volume under `backups/`; restore it from *Settings → Backups*.
 
 ## Turning it off
 

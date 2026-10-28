@@ -94,10 +94,20 @@ async def test_connect_reads_own_node_id():
     assert iface.closed and not radio.connected
 
 
+async def test_signal_information_is_carried_on_the_packet_for_ping():
+    radio, _ = await connected_radio()
+    direct = radio.to_packet({**text_packet("?ping"), "rxSnr": 5.5, "rxRssi": -42, "hopStart": 3, "hopLimit": 3})
+    assert (direct.snr, direct.rssi, direct.hops) == (5.5, -42, 0)
+    relayed = radio.to_packet({**text_packet("?ping", pid=2), "rxSnr": -3.0, "rxRssi": -101, "hopStart": 3, "hopLimit": 1})
+    assert relayed.hops == 2
+    old_firmware = radio.to_packet({**text_packet("?ping", pid=3), "rxSnr": 1.0, "rxRssi": -90, "hopStart": 0, "hopLimit": 3})
+    assert old_firmware.hops is None  # no hopStart: the hop count cannot be known
+
+
 async def test_direct_message_conversion():
     radio, _ = await connected_radio()
     pkt = radio.to_packet(text_packet("what is a quasar?", channel=0))
-    assert pkt == Packet("!a1b2c3d4", "BOB", "what is a quasar?", True, 0)
+    assert pkt == Packet("!a1b2c3d4", "BOB", "what is a quasar?", True, 0, snr=6.0, rssi=-92)
 
 
 async def test_broadcast_is_a_channel_message_with_its_index():

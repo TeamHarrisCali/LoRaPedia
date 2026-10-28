@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-COMMANDS = ("help", "more", "stats")
+COMMANDS = ("help", "more", "stats", "ping")
 
 
 @dataclass(frozen=True)

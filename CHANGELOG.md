@@ -5,6 +5,19 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+### Added
+- **Backups from the web interface** (Settings → Backups): back up now, a daily automatic backup (newest seven kept), download,
+  add a backup file from another machine, and restore. A backup holds the settings and the question log (not Wikipedia or its
+  index). Every file is verified before it is kept or restored, and a restore first saves what it replaces, so it can be undone.
+  The backups the updater takes before an update appear in the same list.
+- **`?ping`**: a range test. It replies with how the sender's message reached the node (direct, or the number of relays and the last
+  hop's signal): SNR and RSSI. It needs no model and no library.
+
+### Changed
+- **No `[wp:Title]` source tag in replies over the radio.** It cost airtime for something only the person running the node needs.
+  The Live Feed and the "try it" box still show the sources, and the one that best supports the answer is now listed first (the old
+  tag took the top search hit, which for "capital of France" was Île-de-France, not Paris). The "Add a source tag" setting is gone.
+
 ## [0.1.4] - 2026-10-28
 
 ### Changed

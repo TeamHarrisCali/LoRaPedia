@@ -38,4 +38,17 @@ export const api = {
   del: <T,>(path: string) => request<T>("DELETE", path),
 };
 
+/** Send a file's raw bytes (for the backup upload; the server checks it is a real backup). */
+export async function upload<T>(path: string, file: File): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+  } catch {
+    throw new ApiError("Cannot reach the LoRaPedia server. Is it running?", 0);
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(describe(data, res.status), res.status);
+  return data as T;
+}
+
 export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));

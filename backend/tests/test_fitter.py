@@ -95,11 +95,6 @@ def test_total_budget():
     assert fitter.total_budget(200, 3) == 3 * (200 - len("(3/3) "))
 
 
-def test_append_tag_only_when_it_fits():
-    assert fitter.append_tag(["abc"], "[wp:X]", 50) == ["abc [wp:X]"]
-    full = "x" * 195
-    assert fitter.append_tag([full], "[wp:Photosynthesis]", 200) == [full]
-
 
 def test_fit_answer_always_within_limit():
     for limit in (50, 120, 200, 233):

@@ -7,8 +7,8 @@ import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import Response, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -18,6 +18,7 @@ from .embed import EmbedError
 from .ollama import PullManager, list_models, native_base
 from . import packages
 
+from .backups import MAX_UPLOAD_BYTES, BackupError, BackupService
 from .config import Settings
 from .embed import Embedder, HashEmbedder, OllamaEmbedder
 from .engine import Engine
@@ -205,6 +206,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
                             transport=opts.get("github_transport"), updater_transport=opts.get("updater_transport"),
                             environ=opts.get("environ"))
 
+    backups = BackupService(store, data, settings)
     wiki_updates = WikipediaUpdater(
         store=store, settings=settings, list_zims=index.list_zims, quiet=updates.idle_reason,
         install=lambda *a, **k: install_package(*a, **k),  # defined below; resolved when called
@@ -216,11 +218,13 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         radio.start()
         updates.start()
         wiki_updates.start()
+        backups.start()
         yield
         indexer.stop()
         worker.cancel()
         updates.stop()
         wiki_updates.stop()
+        backups.stop()
         await radio.stop()
 
     app = FastAPI(title="LoRaPedia", lifespan=lifespan)
@@ -454,7 +458,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
             raise HTTPException(502, str(exc) or exc.__class__.__name__) from exc
         return {"parts": gen.parts, "bytes": [fitter.byte_len(p) for p in gen.parts], "byte_limit": s.byte_limit,
                 "raw": gen.raw, "compressed": gen.compressed, "fallback": gen.fallback, "latency_s": round(asyncio.get_running_loop().time() - started, 2),
-                "chunks": [{"title": c.title, "section": c.section, "score": c.score} for c in gen.chunks]}
+                "sources": gen.sources, "chunks": [{"title": c.title, "section": c.section, "score": c.score} for c in gen.chunks]}
 
     @app.get("/api/wizard")
     async def wizard_get():
@@ -497,6 +501,62 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     async def settings_backup():
         return Response(settings().model_dump_json(indent=2), media_type="application/json",
                         headers={"Content-Disposition": 'attachment; filename="lorapedia-settings.json"'})
+
+    # ---- backups of the settings and question log ----------------------------------------------
+
+    @app.get("/api/backups")
+    async def backups_list():
+        return backups.status()
+
+    @app.post("/api/backups")
+    async def backups_create():
+        try:
+            return await asyncio.to_thread(backups.create, "manual")
+        except BackupError as exc:
+            raise HTTPException(500, exc.message) from exc
+
+    @app.post("/api/backups/upload")
+    async def backups_upload(request: Request):
+        """The raw bytes of a backup file (made elsewhere): checked, then kept like any other."""
+        if int(request.headers.get("content-length") or 0) > MAX_UPLOAD_BYTES:
+            raise HTTPException(413, "That file is too large to be a LoRaPedia backup.")
+        data = bytearray()
+        async for chunk in request.stream():
+            data += chunk
+            if len(data) > MAX_UPLOAD_BYTES:
+                raise HTTPException(413, "That file is too large to be a LoRaPedia backup.")
+        try:
+            return await asyncio.to_thread(backups.add_upload, bytes(data))
+        except BackupError as exc:
+            raise HTTPException(400, exc.message) from exc
+
+    @app.get("/api/backups/{name}/download")
+    async def backups_download(name: str):
+        try:
+            path = backups.file(name)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return FileResponse(path, media_type="application/vnd.sqlite3", filename=name)
+
+    @app.delete("/api/backups/{name}")
+    async def backups_delete(name: str):
+        try:
+            backups.delete(name)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return {"deleted": name}
+
+    @app.post("/api/backups/{name}/restore")
+    async def backups_restore(name: str):
+        try:
+            result = await asyncio.to_thread(backups.restore, name)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except BackupError as exc:
+            raise HTTPException(400, exc.message) from exc
+        state["settings"] = store.load_settings()  # the restored settings take effect now
+        radio.wake()  # connection settings may have changed
+        return result
 
     # ---- ZIM catalog + downloads (the only online step, always user-initiated) -----------
 

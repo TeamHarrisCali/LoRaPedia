@@ -1,5 +1,6 @@
 import { ChangeEvent, useState } from "react";
 import { SaveBar } from "../components/SaveBar";
+import { BackupsCard } from "../components/BackupsCard";
 import { UpdatesCard } from "../components/UpdatesCard";
 import { Button, Card, Field, PageHeader, SectionTitle, Toggle } from "../components/ui";
 import { api, errorText } from "../lib/api";
@@ -57,7 +58,6 @@ export function SettingsPage() {
 
       <Card className="mb-5">
         <SectionTitle>Answers</SectionTitle>
-        <Toggle checked={draft.source_tags} onChange={(v) => set({ source_tags: v })} label="Add a source tag" help="Ends the answer with a tag like [wp:Photosynthesis] when there is room left in the message." />
         <Toggle checked={draft.ai_fallback} onChange={(v) => set({ ai_fallback: v })} label="Answer from the AI's memory when Wikipedia has nothing"
           help="Only once the whole library is indexed, so 'not found' is certain. The reply starts with [AI memory - may be wrong]. Small models do get facts wrong: turn this off if you would rather hear 'not found'." />
       </Card>
@@ -77,6 +77,8 @@ export function SettingsPage() {
       </Card>
 
       <UpdatesCard draft={draft} set={set} />
+
+      <BackupsCard draft={draft} set={set} />
 
       <Card className="mb-5">
         <SectionTitle hint="Where LoRaPedia keeps its databases and Wikipedia files.">Data</SectionTitle>

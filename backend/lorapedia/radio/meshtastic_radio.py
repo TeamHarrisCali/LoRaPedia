@@ -194,7 +194,9 @@ class MeshtasticRadio:
         sender = packet.get("fromId") or (f"!{packet['from']:08x}" if "from" in packet else None)
         if not sender:
             return None
-        return Packet(sender, self._short_name(sender), text, is_dm, packet.get("channel", 0))
+        hops = packet["hopStart"] - packet.get("hopLimit", 0) if packet.get("hopStart") else None  # hopStart is 0 on older firmware
+        return Packet(sender, self._short_name(sender), text, is_dm, packet.get("channel", 0),
+                      snr=packet.get("rxSnr"), rssi=packet.get("rxRssi"), hops=hops if hops is not None and hops >= 0 else None)
 
     def _short_name(self, node_id: str) -> str:
         try:

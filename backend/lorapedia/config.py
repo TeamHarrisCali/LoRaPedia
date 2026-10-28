@@ -35,9 +35,12 @@ class Settings(BaseModel):
     max_parts: int = Field(3, ge=1, le=9)  # admin cap on parts per answer
     auto_send_parts: bool = True  # False: send part 1, rest on "?more"
     send_delay_s: float = Field(5.0, ge=0, le=120)  # airtime courtesy between sends
-    source_tags: bool = True
     # When the whole library is indexed and still has nothing, answer from the model's memory, marked as a guess.
     ai_fallback: bool = True
+
+    # Backups of the settings and question log (see backups.py)
+    auto_backup: bool = True  # one a day while running
+    backup_keep: int = Field(7, ge=1, le=60)  # how many automatic ones to keep
 
     # Rate limiting / queue
     queue_when_limited: bool = True  # hold a too-soon question and answer it on its turn, not reply "busy"

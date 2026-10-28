@@ -84,6 +84,16 @@ class Store:
         finally:
             out.close()
 
+    def restore_from(self, src_path: str | Path) -> None:
+        """Replace everything in the live database with a backup's contents (SQLite's online backup, in reverse)."""
+        src = sqlite3.connect(f"file:{src_path}?mode=ro", uri=True)
+        try:
+            with self._lock:
+                src.backup(self._db)
+                self._db.executescript(SCHEMA)  # a backup from an older version may lack a table added since
+        finally:
+            src.close()
+
     def last_query_ts(self) -> float | None:
         with self._lock:
             row = self._db.execute("SELECT MAX(ts) AS t FROM queries").fetchone()

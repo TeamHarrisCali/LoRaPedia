@@ -121,13 +121,3 @@ def split_parts(text: str, limit: int, max_parts: int = 3) -> list[str]:
 def fit_answer(text: str, limit: int, max_parts: int = 1) -> list[str]:
     """Final, guaranteed-safe step: clean the text and fit it to the budget."""
     return split_parts(clean_text(text), limit, max_parts)
-
-
-def append_tag(parts: list[str], tag: str, limit: int) -> list[str]:
-    """Add a short source tag to the last part, only if it fits."""
-    if not tag or not parts:
-        return parts
-    candidate = f"{parts[-1]} {tag}"
-    if byte_len(candidate) <= limit:
-        return parts[:-1] + [candidate]
-    return parts

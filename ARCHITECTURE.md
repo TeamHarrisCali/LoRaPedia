@@ -17,7 +17,7 @@ In words:
 
 1. **Radio listener.** A text message arrives from the radio (or from the UI simulator). It is dropped if it is
    from our own node, a blocked node, a node outside a non-empty allow list, or on the wrong channel. The
-   trigger rules decide whether it is a *question*, a *command* (`?help`, `?more`, `?stats`) or noise.
+   trigger rules decide whether it is a *question*, a *command* (`?help`, `?more`, `?stats`, `?ping`) or noise.
 2. **Rate limit and queue.** Each node gets a number of questions per time window. A question inside the cooldown is
    not dropped: the limiter *reserves the node's next free slot* (a burst lines up one window apart), the question is
    held until then, and an acknowledgment says when to expect the answer. A per-node cap and a global cap bound the
@@ -81,6 +81,8 @@ not be indexed yet.
 | `llm/openai_compat.py` | Chat client for Ollama, llama.cpp, LM Studio (OpenAI-style API). |
 | `download.py`, `ollama.py` | Resumable ZIM downloads and Kiwix catalog; model listing and pulls. |
 | `store.py` | Settings and the query log (SQLite). |
+| `backups.py` | Verified backups of that database: daily, before updates and restores; download, upload, restore. |
+| `sources.py` | Which retrieved article an answer came from, for the web panel only (nothing about it is sent over the radio). |
 | `system.py`, `demo.py`, `sample.py` | Hardware detection; demo data; a tiny generated ZIM. |
 | `api.py` | HTTP and WebSocket routes, wiring, static UI serving. |
 
@@ -103,7 +105,6 @@ regardless of what the model does.
   4. split:  fits in one message -> send as is
              else wrap at word boundaries into "(i/n) " parts, at most <parts_allowed>;
              overflow is truncated at a word boundary and ends with "..."
-  5. append "[wp:Title]" to the last part only if it still fits
 ```
 
 Lengths are always UTF-8 **bytes**. Truncation never splits a multi-byte character, and a single word longer
