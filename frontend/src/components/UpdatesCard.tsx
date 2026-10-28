@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "../lib/api";
 import { timeAgo } from "../lib/format";
+import { useSettings } from "../lib/settings";
 import { useToast } from "../lib/toast";
 import type { AppUpdateStatus, Settings, WikiUpdateStatus } from "../lib/types";
 import { usePoll } from "../lib/usePoll";
@@ -15,6 +16,8 @@ export function UpdatesCard({ draft, set }: { draft: Settings; set: (p: Partial<
   const wiki = usePoll(() => api.get<WikiUpdateStatus>("/api/kb/updates"), 15000);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const { reload: reloadSettings } = useSettings();
   const wasRestarting = useRef(false);
 
   const a = app.data;
@@ -40,6 +43,7 @@ export function UpdatesCard({ draft, set }: { draft: Settings; set: (p: Partial<
     r.result?.ok ? toast.success(r.update_available ? `Version ${r.latest?.tag.slice(1)} is available.` : "You are up to date.") : toast.error(r.result?.message ?? "The check failed.");
   });
   const applyApp = () => { setConfirm(false); return run("apply", () => api.post("/api/updates/apply"), "Update requested. LoRaPedia will restart in a moment."); };
+  const leaveBeta = () => { setConfirmLeave(false); return run("leave", async () => { await api.post("/api/updates/leave-beta"); await reloadSettings(); }, "Returning to stable. LoRaPedia will restart in a moment."); };
   const checkWiki = () => run("wcheck", async () => {
     const r = await api.post<WikiUpdateStatus>("/api/kb/updates/check");
     r.result?.ok ? toast.success(r.available.length ? "A newer Wikipedia edition is available." : "Wikipedia is up to date.") : toast.error(r.result?.message ?? "The check failed.");
@@ -65,13 +69,30 @@ export function UpdatesCard({ draft, set }: { draft: Settings; set: (p: Partial<
           {lostWhileApplying && <p className="mt-2 text-amber-text">Restarting into the new version… this page reconnects by itself.</p>}
           {a.updater_outdated && (
             <div role="alert" className="mt-2 rounded-lg border border-amber p-3">
-              <p>The updater container is older than this version and cannot install beta releases (it only knows stable ones), so nothing was changed. Update it first, in the project folder:</p>
+              <p>The updater container is older than this version and cannot {a.last_update?.downgrade ? "return a beta to stable" : "install beta releases"} (it only knows how to move forward to stable ones), so nothing was changed. Update it first, in the project folder:</p>
               <pre className="mt-2 overflow-auto font-mono text-xs">docker compose pull updater{"\n"}docker compose up -d updater</pre>
               <p className="mt-2">Then press Update now again.</p>
             </div>
           )}
           {a.last_update && a.last_update.result !== "requested" && <p className="mt-1 text-muted">Last update: {a.last_update.from} → {a.last_update.to} ({a.last_update.result}).</p>}
           {a.update_available && a.idle_reason && a.auto_update && a.can_apply && <p className="mt-1 text-muted">An automatic update is waiting until {a.idle_reason === "a question was answered a moment ago" ? "the node has been quiet for a few minutes" : a.idle_reason}.</p>}
+        </div>
+      )}
+      {a?.on_beta && (
+        <div className="mb-3 rounded-lg border border-line bg-bg p-3 text-sm" role="region" aria-label="Return to stable">
+          <p><Badge tone="teal">Beta</Badge> <span className="ml-1">You are running a test version (<span className="font-mono">{a.version}</span>).</span></p>
+          {a.can_leave_beta ? (
+            confirmLeave ? (
+              <div className="mt-2">
+                <p>This installs the newest <b>stable</b> release, which is an older version number than your beta, and stops offering betas. A backup of your settings and question log is made first and your Wikipedia library is kept. Anything the beta added (such as its Nodes data) is left in place but unused. LoRaPedia restarts for about a minute.</p>
+                <div className="mt-2 flex gap-2"><Button variant="primary" busy={busy === "leave"} onClick={() => void leaveBeta()}>Return to stable</Button><Button variant="ghost" onClick={() => setConfirmLeave(false)}>Cancel</Button></div>
+              </div>
+            ) : (
+              <div className="mt-2 flex flex-wrap items-center gap-2"><Button icon="download" disabled={updaterActive} onClick={() => setConfirmLeave(true)}>Return to stable…</Button><span className="text-muted">Updates never go backwards by themselves; this is the way back.</span></div>
+            )
+          ) : a.leave_beta_steps.length > 0 ? (
+            <div className="mt-2"><p>To go back to stable, in the project folder:</p><pre className="mt-2 overflow-auto font-mono text-xs">{a.leave_beta_steps.join("\n")}</pre></div>
+          ) : null}
         </div>
       )}
       {a && !a.can_apply && a.reason && (

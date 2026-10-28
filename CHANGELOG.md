@@ -5,6 +5,12 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.2.0-beta.4] - 2026-10-28
+
+A test version for the beta channel. It adds nothing of its own beyond [0.2.0-beta.3] and brings in [0.1.10] and [0.1.11] (below):
+the Radio page explains why a USB radio will not connect, and **Return to stable** (Settings → Updates) gives a beta the way back to
+the newest stable release. Needs the new updater container to use it: `docker compose pull updater && docker compose up -d updater`.
+
 ## [0.2.0-beta.3] - 2026-10-28
 
 A test version for the beta channel. **It replaces 0.2.0-beta.2, which could not start with its own compose file** (see [0.1.9] below:
@@ -26,6 +32,17 @@ A test version for the beta channel (Settings → Updates → Release channel �
   **Nodes** page lists them with search and filters, shows each node's history, and lets you add your own label and note.
   **Settings → Mesh data** turns recording off and sets how long history is kept (30 days by default). A made-up mesh can be loaded to
   try the page without a radio. Not yet verified on a real radio: parsing is tested against the library's packet shapes with fakes.
+
+## [0.1.11] - 2026-10-28
+
+### Added
+- **Return to stable** (Settings → Updates, while you run a beta). Updates never go backwards, so a node that tried the beta channel
+  could not get back to the stable release without editing files by hand. The button sets the channel to Stable, takes a backup of
+  the settings and question log, and installs the newest stable release, signature-verified like any release. It is the only downgrade
+  there is: the updater accepts it only from a node running `X.Y.Z-beta.N`, only to the newest stable release, and only for the exact
+  request `{"channel": "stable", "leave_beta": true}`; a stable node is still never moved to an older release. Installs that cannot do
+  it themselves are shown the commands, and an updater container too old to know about it is named as such. Needs the new updater
+  image (`docker compose pull updater && docker compose up -d updater`).
 
 ## [0.1.10] - 2026-10-28
 

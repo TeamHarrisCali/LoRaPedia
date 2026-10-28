@@ -5,6 +5,9 @@
 # Docker Compose loads docker-compose.override.yml by itself, the updater includes it when it replaces the app container (so
 # these survive automatic updates), and git ignores it, so `git pull` never conflicts with it. This example file does nothing
 # on its own. Delete what you do not need.
+#
+# Use ABSOLUTE host paths for any file or folder you mount here: when the updater recreates the app it runs Compose from inside its own
+# container, where `./` is not your folder, so a relative path like ./my-file would fail to mount and the update would fail.
 
 # A USB radio needs nothing here: docker-compose.yml finds any Meshtastic radio on USB by itself.
 #

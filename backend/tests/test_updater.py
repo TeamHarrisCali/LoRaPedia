@@ -519,3 +519,93 @@ def test_api_a_beta_request_installs_a_beta_and_no_body_means_stable(tmp_path):
             threading.Event().wait(0.02)
         server.shutdown()
         assert up.status()["state"] == "done" and up.status()["target"] == expected
+
+
+# ---- returning from a beta to stable (the one downgrade) -------------------------------------------------------------------
+
+
+BETA = "0.2.0-beta.3"
+
+
+@pytest.mark.parametrize("v,ok", [("0.2.0-beta.3", True), ("1.10.0-beta.12", True), ("0.2.0", False), ("0.2.0-rc.1", False),
+                                  ("0.2.0-beta.", False), ("dev", False), ("", False), (None, False), ("0.2.0-beta.3\n", False)])
+def test_only_a_beta_version_counts_as_a_beta(v, ok):
+    assert U.is_beta_version(v) is ok
+
+
+def test_a_beta_can_return_to_the_newest_stable_release_even_though_that_is_a_lower_number(tmp_path):
+    up, fake, cfg = make(tmp_path, tag="v0.1.10", current=BETA)
+    up.apply("stable", leave_beta=True)
+    s = up.status()
+    assert (s["state"], s["current"], s["target"]) == ("done", "0.1.10", "0.1.10")
+    assert next(c for c in fake.calls if c[:2] == ["docker", "pull"])[-1] == f"{U.IMAGE_REPO}:0.1.10"
+    verify = next(c for c in fake.calls if c[0] == "cosign")  # verified exactly like any release: this tag, this workflow
+    assert verify[verify.index("--certificate-identity") + 1] == U.signing_identity("v0.1.10")
+    assert any(c[:2] == ["docker", "tag"] and c[-1] == U.ROLLBACK_TAG for c in fake.calls)  # the beta is kept for a roll-back
+
+
+def test_without_the_request_a_beta_is_never_moved_back(tmp_path):
+    up, fake, _ = make(tmp_path, tag="v0.1.10", current=BETA)
+    up.apply("stable")
+    assert up.status()["state"] == "idle" and fake.up_calls == 0 and "Already on the newest" in up.status()["message"]
+
+
+@pytest.mark.parametrize("current", ["0.2.0", "0.1.10", "0.2.0-rc.1", "dev"])
+def test_only_a_beta_may_ask_to_leave_the_beta(tmp_path, current):
+    up, fake, _ = make(tmp_path, tag="v0.1.9", current=current)
+    with pytest.raises(U.UpdateError, match="running a beta|not a release"):  # a dev or rc build is refused even earlier
+        up.apply("stable", leave_beta=True)
+    assert fake.up_calls == 0 and not any(c[:2] == ["docker", "pull"] for c in fake.calls)  # a stable node is never moved to an older one
+
+
+def test_leaving_the_beta_is_a_stable_channel_request_and_nothing_else(tmp_path):
+    up, fake, _ = make(tmp_path, tag="v0.1.10", current=BETA, releases=[rel("v0.3.0-beta.1")])
+    with pytest.raises(U.UpdateError, match="running a beta"):
+        up.apply("beta", leave_beta=True)  # not a way to pick a different beta, or to downgrade to one
+    assert fake.up_calls == 0
+
+
+def test_a_stable_release_newer_than_the_beta_is_an_ordinary_update_even_when_leaving(tmp_path):
+    up, fake, _ = make(tmp_path, tag="v0.2.0", current=BETA)
+    up.apply("stable", leave_beta=True)
+    assert up.status()["state"] == "done" and up.status()["target"] == "0.2.0"
+
+
+def test_an_unhealthy_stable_after_leaving_the_beta_rolls_back_to_the_beta_and_is_not_retried(tmp_path):
+    up, fake, _ = make(tmp_path, tag="v0.1.10", current=BETA, healthy=False)
+    up.apply("stable", leave_beta=True)
+    s = up.status()
+    assert s["state"] == "rolled_back" and s["failed_versions"] == ["0.1.10"]
+    assert fake.running == BETA  # the node is back on the beta it started from
+
+
+def test_a_bad_signature_stops_the_return_before_anything_is_switched(tmp_path):
+    up, fake, _ = make(tmp_path, tag="v0.1.10", current=BETA, verify_ok=False)
+    with pytest.raises(U.UpdateError):
+        up.apply("stable", leave_beta=True)
+    assert fake.up_calls == 0 and any(c[:3] == ["docker", "image", "rm"] for c in fake.calls)
+
+
+def test_api_accepts_exactly_the_two_request_shapes_for_leaving_the_beta(api):
+    call, up, fake, cfg, token = api
+    for bad in ({"channel": "beta", "leave_beta": True}, {"leave_beta": True}, {"channel": "stable", "leave_beta": "yes"},
+                {"channel": "stable", "leave_beta": 1}, {"channel": "stable", "leave_beta": False},
+                {"channel": "stable", "leave_beta": True, "version": "v0.0.1"}, {"channel": "stable", "leave_beta": None}):
+        assert call("POST", "/v1/apply", body=bad)[0] == 400, bad
+    assert up.status()["state"] == "idle" and fake.up_calls == 0
+
+
+def test_api_a_beta_node_can_leave_the_beta(tmp_path):
+    up, fake, cfg = make(tmp_path, tag="v0.1.10", current=BETA)
+    token = U.load_or_create_token(cfg.state_dir)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), U.make_handler(up, token))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+    conn.request("POST", "/v1/apply", body=json.dumps({"channel": "stable", "leave_beta": True}).encode(), headers={"Authorization": f"Bearer {token}"})
+    assert conn.getresponse().status == 202
+    for _ in range(200):
+        if up.status()["state"] in ("done", "failed", "rolled_back"):
+            break
+        threading.Event().wait(0.02)
+    server.shutdown()
+    assert up.status()["state"] == "done" and up.status()["target"] == "0.1.10"
