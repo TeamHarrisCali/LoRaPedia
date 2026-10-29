@@ -13,6 +13,12 @@ A test version for the beta channel.
 - **The Indexing tab on the Knowledge page shows its progress from any tab.** Indexing moved to its own tab in 0.4.0, so starting it from the
   Library tab left no sign it was running. The tab now carries a badge: the percentage done while it runs, "paused", or "stopped" if it failed.
 
+### Fixed
+- **Indexing failed on a new install built with libzim 4.0.0**, which renamed the call LoRaPedia used to read an article by position
+  (`AttributeError: 'libzim.Archive' object has no attribute '_get_entry_by_id'`). It now uses whichever name the installed libzim has,
+  and CI runs against the newest libzim, so a change like this shows up before a release. Images released before this (up to 0.4.0) contain
+  libzim 3.13.1 and are not affected.
+
 ## [0.4.0] - 2026-10-29
 
 **Easier navigation and an optional street map, now stable.** This is [0.4.0-beta.1] with nothing added: tested on a real node and promoted.

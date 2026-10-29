@@ -170,10 +170,15 @@ class ZimReader:
         ids = range(total) if total <= sample else [total * i // sample for i in range(sample)]
         hits = 0
         for i in ids:
-            entry = self.archive._get_entry_by_id(i)
+            entry = self._entry(i)
             if not entry.is_redirect and entry.get_item().mimetype.startswith("text/html"):
                 hits += 1
         return hits if total <= sample else round(hits / sample * total)
+
+    def _entry(self, entry_id: int):
+        """An entry by its position. libzim 4 made this public (`get_entry_by_id`); 3.x only has the underscore name."""
+        get = getattr(self.archive, "get_entry_by_id", None) or self.archive._get_entry_by_id
+        return get(entry_id)
 
     def metadata(self, key: str, default: str = "") -> str:
         try:
@@ -184,7 +189,7 @@ class ZimReader:
     def articles(self, start: int = 0) -> Iterator[Article]:
         """Yield HTML articles from entry id `start`, skipping redirects and non-HTML resources."""
         for entry_id in range(start, self.archive.entry_count):
-            entry = self.archive._get_entry_by_id(entry_id)
+            entry = self._entry(entry_id)
             if entry.is_redirect:
                 continue
             item = entry.get_item()

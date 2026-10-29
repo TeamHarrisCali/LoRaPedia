@@ -556,3 +556,18 @@ async def test_a_library_file_that_was_never_indexed_does_not_block_the_fallback
     extra = make_sample_zim(tmp_path / "other.zim")
     index.add_zim("other.zim", str(extra), "Other", 12, 12)  # in the library, never indexed
     assert index.library_state() == "complete"  # unindexed files are not part of the searchable library
+
+
+def test_entry_lookup_works_with_either_libzim_api(zim_path):
+    """libzim 4 renamed the private `_get_entry_by_id` to `get_entry_by_id`; indexing broke on a fresh install that picked up libzim 4."""
+    class New:
+        def get_entry_by_id(self, i): return ("new", i)
+
+    class Old:
+        def _get_entry_by_id(self, i): return ("old", i)
+
+    reader = ZimReader(zim_path)
+    reader.archive = New() 
+    assert reader._entry(3) == ("new", 3)
+    reader.archive = Old()
+    assert reader._entry(3) == ("old", 3)
