@@ -7,14 +7,24 @@ import { Badge, Button, Card, EmptyState, PageHeader, SectionTitle } from "../co
 import { api, errorText } from "../lib/api";
 import { fmtBytes, timeAgo } from "../lib/format";
 import { useToast } from "../lib/toast";
-import type { KbStats, SearchResult } from "../lib/types";
+import type { IndexProgress, KbStats, SearchResult } from "../lib/types";
 import { usePoll } from "../lib/usePoll";
 
 const TABS = [{ id: "library", label: "Library" }, { id: "indexing", label: "Indexing" }, { id: "search", label: "Test a search" }];
 
+/** What the Indexing tab shows when you are looking at another tab: whether work is going on, and how far it has got. */
+function indexBadge(p: IndexProgress | null | undefined) {
+  if (!p) return undefined;
+  if (p.state === "running") return <Badge tone="amber">{p.entries_total ? `${Math.min(99, Math.floor((p.entries_done / p.entries_total) * 100))}%` : "running"}</Badge>;
+  if (p.state === "paused") return <Badge tone="muted">paused</Badge>;
+  if (p.state === "error") return <Badge tone="danger">stopped</Badge>;
+  return undefined;
+}
+
 export function Knowledge() {
   const toast = useToast();
   const stats = usePoll(() => api.get<KbStats>("/api/kb/stats"), 5000);
+  const indexing = usePoll(() => api.get<IndexProgress>("/api/kb/index/status"), 3000);
   const [tab, setTab] = useState(() => rememberedTab("knowledge", "library", TABS.map((t) => t.id)));
   const [q, setQ] = useState("");
   const [res, setRes] = useState<{ mode: string; results: SearchResult[] } | null>(null);
@@ -37,7 +47,7 @@ export function Knowledge() {
         {tile("Disk used", s ? fmtBytes(s.disk_bytes) : "–")}
         {tile("Last indexed", s ? timeAgo(s.last_indexed) : "–")}
       </div>
-      <Tabs label="Knowledge sections" tabs={TABS} active={tab} onChange={(id) => { setTab(id); rememberTab("knowledge", id); }} />
+      <Tabs label="Knowledge sections" tabs={TABS.map((t) => (t.id === "indexing" ? { ...t, badge: indexBadge(indexing.data) } : t))} active={tab} onChange={(id) => { setTab(id); rememberTab("knowledge", id); }} />
 
       <TabPanel id="library" active={tab}>
       <div className="mb-5"><WikipediaPackages onChanged={() => void stats.reload()} /></div>

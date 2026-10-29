@@ -5,6 +5,14 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.5.0-beta.1] - 2026-10-29
+
+A test version for the beta channel.
+
+### Changed
+- **The Indexing tab on the Knowledge page shows its progress from any tab.** Indexing moved to its own tab in 0.4.0, so starting it from the
+  Library tab left no sign it was running. The tab now carries a badge: the percentage done while it runs, "paused", or "stopped" if it failed.
+
 ## [0.4.0] - 2026-10-29
 
 **Easier navigation and an optional street map, now stable.** This is [0.4.0-beta.1] with nothing added: tested on a real node and promoted.
