@@ -5,18 +5,6 @@ images (amd64 and arm64), and publish a GitHub Release with notes from [CHANGELO
 a tag is pushed**, and only the maintainer should push one. Installs that have update checks on will see a stable release
 within a day and (Docker + updater) apply it when idle.
 
-## Which number
-
-While the project is 0.x: **a `0.x.0` release is for a major update** (a new area of the program, or a change big enough that people should
-read about it first). **Everything else is a patch release, `0.x.y`**: fixes, small improvements, a page that works better. So after
-0.4.0 the next small release is 0.4.1, and the next major one is 0.5.0.
-
-A beta is named for the stable version it is expected to become: `0.4.2-beta.1` for a small update after 0.4.1, `0.5.0-beta.1` for a major one.
-**Choose that name when you start, because it cannot be lowered later without a cost.** A node on the beta channel never moves to a
-lower version, and `0.5.0-beta.2` is higher than `0.4.1`: when work that was numbered as a 0.5.0 beta turned out to be a small update and
-was released as 0.4.1, nodes already on `0.5.0-beta.N` stayed on that beta (the same code) and could not see 0.4.1 or any `0.4.x-beta`.
-They are brought back with **Settings → Updates → Return to stable**, after which the beta channel works again.
-
 ## Cutting a release
 
 1. **Pick the version** (semver; while 0.x anything may change). Edit `backend/lorapedia/__init__.py` (`__version__`, the only
@@ -53,8 +41,8 @@ git tag -a vX.Y.Z-beta.N -m "LoRaPedia X.Y.Z-beta.N" && git push origin vX.Y.Z-b
 **Beta numbers and GitHub's list.** GitHub's release list compares `beta.10` as text, so it lists `v0.2.0-beta.10` *below* `beta.2`. An app
 or updater that reads only the first few releases then never sees it: that is what hid 0.2.0-beta.10 from every node (they read 5; they read
 100 now, and choose the highest themselves, numerically). Installs older than 0.3.0-beta.1 still read 5, so for them a pre-release must be
-listed in the top five: **keep the beta number at 9 or below and raise the version instead** (`v0.4.2-beta.1`, ..., `v0.4.2-beta.9`,
-then `v0.4.3-beta.1`, or the next minor if the update has become a major one). After publishing, check the order the API gives
+listed in the top five: **keep the beta number at 9 or below and raise the minor version instead** (`v0.3.0-beta.1`, ..., `v0.3.0-beta.9`,
+then `v0.4.0-beta.1`). After publishing, check the order the API gives
 (`gh api "repos/TeamHarrisCali/LoRaPedia/releases?per_page=5" --jq '.[].tag_name'`): the new tag should be first.
 
 The workflow accepts a tag whose name contains `-beta.` from the tip of `beta` (or `main`); a stable tag must be on `main`, and any

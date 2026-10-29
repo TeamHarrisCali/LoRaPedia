@@ -8,7 +8,7 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 ## [0.4.1] - 2026-10-29
 
 A patch release: a better indexing display and a fix for fresh installs. It is the code of the two betas numbered 0.5.0-beta.1 and 0.5.0-beta.2,
-released under a patch number because the change is small (from now on only a major update gets a `0.x.0` number).
+released under a patch number because the change is small.
 
 ### Changed
 - **Indexing progress is in the top bar.** While a Wikipedia file is being indexed, the Knowledge entry next to Radio and Model shows the
