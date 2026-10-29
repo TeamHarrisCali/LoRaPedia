@@ -4,7 +4,7 @@
 
 Someone on your LoRa mesh sends a question as a normal text message. LoRaPedia searches a local copy of
 Wikipedia, has a small local language model write a short answer from what it found, and replies over the
-mesh, trimmed to fit Meshtastic's tiny message size. No internet, no cloud, no telemetry while it runs.
+mesh, trimmed to fit Meshtastic's tiny message size. No internet, no cloud, no telemetry while it runs (an optional street map on the Map page is the one thing that can fetch from the internet, and it is off until you turn it on).
 
 It is inspired by Project NOMAD, but focused on one job: answers delivered over the mesh.
 
@@ -53,7 +53,7 @@ Software: **Docker** (easiest), or **Python 3.11+** and **Node.js 20+** for `./r
 ## Quick start
 
 Internet is needed **once**, to fetch software, a model, and a Wikipedia file. After that it runs offline, apart from the
-optional [update checks](#updates).
+optional [update checks](#updates) and the optional [street map](#street-map).
 
 ### Option A: Docker (recommended)
 
@@ -272,7 +272,14 @@ too soon is **not rejected**: it is held and answered when its turn comes, and t
 "Queued. Answer in about 45s." so they know it arrived. Each node can have up to 3 waiting; beyond that, or when the
 whole queue is full (20 by default), they get a "Busy" reply. Answers leave one at a time with a delay between
 messages. All of this is adjustable, including switching back to plain "busy, try again in Ns" replies. You can
-block nodes, or allow only listed ones, on the Radio page.
+block nodes, or allow only listed ones, on the Limits page.
+
+### Finding your way around
+
+The sidebar groups the pages by what you want to do: **Overview** (Dashboard, Live Feed), **Mesh** (Nodes, Map, Messages, Traceroute),
+**Insights** (Link quality, Telemetry, Trends), **Answers** (Knowledge, Model, Limits) and **Radio** (Connection, Radio settings), with
+**Settings** and the **Setup guide** at the bottom. The status dots at the top (Radio, Model, Knowledge) are links to those pages. On a phone the
+sidebar becomes a menu button. **Go to…** (press `Ctrl+K`, `⌘K`, or `/`) finds a page, or a node by name or id, as you type.
 
 ## Settings
 
@@ -280,10 +287,10 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 
 | Page | You can change |
 |---|---|
-| **Radio** | Connection (USB / network / Bluetooth / simulator), trigger prefixes, hop limit, **byte limit (50 to 233)**, multi-part and its cap, pause between sends |
-| **Model** | Language and embedding model (install with progress), temperature, max tokens, passages retrieved, system prompt (with *Reset to default*), a "try it" box showing the byte count |
-| **Knowledge** | Wikipedia files, downloads, indexing, a search playground |
-| **Map** | Every node with a known position on a plain offline grid with a scale bar: pan, zoom, search, filter by how recently it was heard, optional movement trails, and a card with distance from this radio. There is no background map picture, on purpose: LoRaPedia works without the internet |
+| **Radio** (tabs: Connection, Replies) | Connection (USB / network / Bluetooth / simulator), trigger prefixes, hop limit, **byte limit (50 to 233)**, multi-part and its cap, pause between sends |
+| **Model** (tabs: Models, Tuning and prompt, Try it) | Language and embedding model (install with progress), temperature, max tokens, passages retrieved, system prompt (with *Reset to default*), a "try it" box showing the byte count |
+| **Knowledge** (tabs: Library, Indexing, Test a search) | Wikipedia files, downloads, indexing, a search playground |
+| **Map** | Every node with a known position, with a scale bar: pan, zoom, search, filter by how recently it was heard, optional movement trails, and a card with distance from this radio. The background is a plain offline grid; an optional **street map** from OpenStreetMap can be turned on (see [Street map](#street-map)) |
 | **Traceroute** | Ask the mesh which way a packet takes to one node and back, with the signal at each hop, drawn on a map and saved to a history. It transmits, so it only ever runs when you press the button: one at a time, the same node at most every 30 seconds, never to everyone, never from the AI |
 | **Link quality** | How well your radio hears the nodes that reach it directly: signal against distance with the decode limit marked, and a table. Also available as an overlay on the Map |
 | **Telemetry** | What nodes broadcast: sensor averages around you (each node counted once), battery, voltage, channel use, temperature, humidity and pressure over time for the nodes you pick, a table of recent readings, and a CSV export |
@@ -292,7 +299,7 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 | **Radio settings** | What is stored on the radio itself: region, role, LoRa preset, hop limit, power, position and telemetry intervals, and more, in tabs, with a search box to find a setting. Looking is always allowed; **changing is off until you turn it on in Settings**, then every change is checked, shown with what could go wrong, confirmed, written in one transaction, and preceded by a saved copy you can restore. Also the radio's name and a **fixed position** (a radio with no GPS has no position, so the Map cannot place it and distances cannot be worked out). Wi-Fi passwords, keys and MQTT credentials are never shown, copied or written |
 | **Messages** | Write to a node yourself: a direct message to one node, with a report of whether it arrived. After you write to a node, what it sends back (unless it starts with `?` or `!wiki`) comes to this page for a while instead of being answered by the AI. Also, **off by default**, a post to a public channel that you type and confirm yourself |
 | **Nodes** | Every node the radio has heard: names, hardware, hops, signal, battery, sensors, last position, and a history of each. Search and filter, and add your own label and note to any node |
-| **Settings** | Rate limits, queue length, AI-memory fallback, *Mesh AI* (mesh questions on or off, how long follow-ups are remembered), theme, temperature and distance units, backups, mesh data, CSV export of the log, demo data |
+| **Settings** | Rate limits, queue length, AI-memory fallback, *Mesh AI* (mesh questions on or off, how long follow-ups are remembered), theme, temperature and distance units, backups, mesh data, the street map, CSV export of the log, demo data |
 
 Environment variables exist for deployment only: `LORAPEDIA_DATA` (data folder), `LORAPEDIA_HOST`,
 `LORAPEDIA_PORT`, and `LORAPEDIA_OLLAMA_URL` (where Ollama is, used for first-run defaults).
@@ -357,6 +364,16 @@ content of any message. It stays on this computer in `mesh.db` (separate from yo
 *Backups*), history is deleted after 30 days by default (a node not heard for 90 days is forgotten, and position trails live three
 times as long), and *Settings → Mesh data* turns the recording off or changes the retention. Positions are location data: keep that in
 mind before sharing the file or the screen. Your labels and notes are never deleted by the clean-up and never sent over the radio.
+
+### Street map
+
+*Optional, and off by default.* LoRaPedia works without the internet, so the Map page draws a plain grid unless you turn on
+*Settings → Mesh and radio → Street map* (or the *Street map* switch on the Map page, which asks first). Then, for the part of the map you
+are looking at, **this server** (never your browser) downloads small map pictures from OpenStreetMap, once each, and keeps them in the data
+folder (up to 500 MB, refreshed after a month, *Delete saved pictures* empties it), so places you have looked at keep working offline.
+OpenStreetMap can see this computer's internet address and which places were asked for; nothing about your nodes is sent. The address is not
+a setting and there is no bulk download, in line with OpenStreetMap's [tile usage policy](https://operations.osmfoundation.org/policies/tiles/).
+Map data © OpenStreetMap contributors, shown on the map.
 
 ## Security
 

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Bubble } from "../components/Bubble";
 import { ByteMeter } from "../components/ByteMeter";
 import { SaveBar } from "../components/SaveBar";
+import { TabPanel, Tabs, rememberTab, rememberedTab } from "../components/Tabs";
 import { Card, Dot, Field, PageHeader, SectionTitle, Toggle } from "../components/ui";
 import { api } from "../lib/api";
 import { utf8Bytes } from "../lib/format";
@@ -14,12 +15,15 @@ import { RadioConnect } from "../components/RadioConnect";
 
 const SAMPLE = "Photosynthesis converts light, water and carbon dioxide into sugar and oxygen. [wp:Photosynthesis]";
 
+const TABS = [{ id: "connection", label: "Connection" }, { id: "replies", label: "Replies" }];
+
 export function Radio() {
   const { draft, set, dirty, save, discard } = useDraft();
   const live = useLive();
   const status = usePoll(() => api.get<RadioStatus>("/api/radio/status"), 4000);
   const st = live.radio ?? status.data;
   const [prefixText, setPrefixText] = useState<string | null>(null);
+  const [tab, setTab] = useState(() => rememberedTab("radio", "connection", TABS.map((t) => t.id)));
   if (!draft) return <p className="text-muted" role="status">Loading…</p>;
 
   const prefixes = prefixText ?? draft.trigger_prefixes.join(", ");
@@ -28,13 +32,19 @@ export function Radio() {
 
   return (
     <>
-      <PageHeader title="Radio" subtitle="How LoRaPedia talks to your Meshtastic device, who it answers, and how long replies can be." />
+      <PageHeader title="Radio connection" subtitle="How LoRaPedia talks to your Meshtastic device, and how long replies can be. Who may ask is on the Limits page." />
 
+      <Tabs label="Radio sections" tabs={TABS} active={tab} onChange={(id) => { setTab(id); rememberTab("radio", id); }} />
+
+      <TabPanel id="connection" active={tab}>
       <Card className="mb-5">
         <SectionTitle hint="Plug the radio in over USB and leave this on Auto. Or choose another connection.">Connection</SectionTitle>
         <RadioConnect status={st} onChanged={() => { void status.reload(); }} />
       </Card>
 
+      </TabPanel>
+
+      <TabPanel id="replies" active={tab}>
       <Card className="mb-5">
         <SectionTitle hint="Which messages the node answers.">Trigger</SectionTitle>
         <p className="mb-4 rounded-lg border border-line bg-bg p-3 text-sm">
@@ -87,6 +97,7 @@ export function Radio() {
           Block or allow a node, and set how many questions each node may ask per day, on the <Link className="underline" to="/limits">Limits page</Link>.
         </p>
       </Card>
+      </TabPanel>
       <SaveBar dirty={dirty} onSave={() => void save()} onDiscard={() => { discard(); setPrefixText(null); }} />
     </>
   );

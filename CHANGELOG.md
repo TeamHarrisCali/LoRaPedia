@@ -5,6 +5,34 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.4.0-beta.1] - 2026-10-29
+
+A test version for the beta channel: easier navigation, and an optional street map.
+
+### Added
+- **Street map (optional, off by default).** *Settings → Mesh and radio → Street map*, or the new *Street map* switch on the Map page (which
+  explains first and asks), draws OpenStreetMap roads and towns behind the nodes, on the Map and on a traceroute. **This server**, never your
+  browser, downloads each small picture once and keeps it in the data folder (up to 500 MB, refreshed after a month, *Delete saved pictures*
+  empties it), so places you have looked at keep working offline. It fetches only what you are looking at (never in bulk), at most two at a
+  time, with a User-Agent naming LoRaPedia, as OpenStreetMap's tile policy asks; the address is fixed (not a setting), a reply that is not a
+  picture is thrown away, and without internet the map falls back to the plain grid with a notice. OpenStreetMap can see this computer's
+  address and which places were asked for; nothing about nodes is sent. The credit "© OpenStreetMap contributors" is shown on the map. In the
+  dark theme the pictures are darkened to fit.
+- **Go to…** (`Ctrl+K`, `⌘K` or `/`, or the button above the sidebar / the magnifier on a phone): type a few letters to jump to a page, or to a
+  node by its name or id.
+- A **Mesh** card on the Dashboard (how many nodes, how many heard in the last hour).
+
+### Changed
+- **The sidebar is grouped** instead of one list of sixteen: Overview (Dashboard, Live Feed), Mesh (Nodes, Map, Messages, Traceroute), Insights
+  (Link quality, Telemetry, Trends), Answers (Knowledge, Model, Limits), Radio (Connection, Radio settings), and Settings and the Setup guide
+  at the bottom. It stays in view while a long page scrolls, every page has its own icon, each page shows its group above the title and the
+  browser tab names the page.
+- **On a phone** the menu is a button that opens the same grouped list, and the top bar fits on one line.
+- **Long pages are in tabs**: Model (Models, Tuning and prompt, Try it), Radio (Connection, Replies) and Knowledge (Library, Indexing, Test a
+  search), like Settings already was.
+- Names agree everywhere: the status dots at the top say Radio, Model and Knowledge (they said LLM and Index), the Radio page is titled
+  *Radio connection*, the Knowledge page *Knowledge*. The help text that pointed at the Radio page for blocking and allowing now points at Limits.
+
 ## [0.3.0] - 2026-10-28
 
 **The MeshtasticLLM merge is finished and is now the stable release.** LoRaPedia remembers the mesh around it, answers questions about

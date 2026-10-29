@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { IndexControls } from "../components/IndexControls";
+import { TabPanel, Tabs, rememberTab, rememberedTab } from "../components/Tabs";
 import { WikipediaPackages } from "../components/WikipediaPackages";
 import { ZimLibrary } from "../components/ZimLibrary";
 import { Badge, Button, Card, EmptyState, PageHeader, SectionTitle } from "../components/ui";
@@ -9,9 +10,12 @@ import { useToast } from "../lib/toast";
 import type { KbStats, SearchResult } from "../lib/types";
 import { usePoll } from "../lib/usePoll";
 
+const TABS = [{ id: "library", label: "Library" }, { id: "indexing", label: "Indexing" }, { id: "search", label: "Test a search" }];
+
 export function Knowledge() {
   const toast = useToast();
   const stats = usePoll(() => api.get<KbStats>("/api/kb/stats"), 5000);
+  const [tab, setTab] = useState(() => rememberedTab("knowledge", "library", TABS.map((t) => t.id)));
   const [q, setQ] = useState("");
   const [res, setRes] = useState<{ mode: string; results: SearchResult[] } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -26,20 +30,28 @@ export function Knowledge() {
 
   return (
     <>
-      <PageHeader title="Knowledge Base" subtitle="The offline Wikipedia the node answers from." />
+      <PageHeader title="Knowledge" subtitle="The offline Wikipedia the node answers from." />
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {tile("Articles", s ? s.articles.toLocaleString() : "–")}
         {tile("Chunks", s ? s.chunks.toLocaleString() : "–")}
         {tile("Disk used", s ? fmtBytes(s.disk_bytes) : "–")}
         {tile("Last indexed", s ? timeAgo(s.last_indexed) : "–")}
       </div>
+      <Tabs label="Knowledge sections" tabs={TABS} active={tab} onChange={(id) => { setTab(id); rememberTab("knowledge", id); }} />
+
+      <TabPanel id="library" active={tab}>
       <div className="mb-5"><WikipediaPackages onChanged={() => void stats.reload()} /></div>
       <details className="mb-5 rounded-xl border border-line bg-surface/90 p-1">
         <summary className="cursor-pointer px-4 py-3 font-serif text-lg font-semibold">Other files and advanced options</summary>
         <div className="p-1"><ZimLibrary onChanged={() => void stats.reload()} /></div>
       </details>
-      <div className="mb-5"><IndexControls onDone={() => void stats.reload()} /></div>
+      </TabPanel>
 
+      <TabPanel id="indexing" active={tab}>
+      <div className="mb-5"><IndexControls onDone={() => void stats.reload()} /></div>
+      </TabPanel>
+
+      <TabPanel id="search" active={tab}>
       <Card>
         <SectionTitle hint="Type a question the way a person would. You will see exactly what the node would pull from Wikipedia, ranked.">Search playground</SectionTitle>
         <form className="flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); void search(); }}>
@@ -65,6 +77,7 @@ export function Knowledge() {
           </div>
         )}
       </Card>
+      </TabPanel>
     </>
   );
 }

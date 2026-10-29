@@ -27,6 +27,7 @@ from .index import Index, Indexer
 from .llm.base import MockLLM
 from .mesh import sim as mesh_sim
 from .meshask import MeshAsker
+from .maptiles import ATTRIBUTION, TileCache, TileError
 from .messaging import PUBLIC_GAP_S, MessageError, Messenger
 from .radio.config import ConfigError, RadioConfig
 from .mesh.service import MeshService, distance_km
@@ -171,6 +172,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     retriever = RoutingRetriever(index, current_embedder)
     engine: Engine  # created below; the radio manager submits received packets to it
     mesh_store = MeshStore(data / "mesh.db")
+    tiles = TileCache(data / "tiles")
     mesh = MeshService(mesh_store, settings, radio_nodes=lambda: radio.nodes(), my_id=lambda: radio.node_id)
     def on_delivery(packet_id: int, state: str, detail: str | None) -> None:
         """The radio learned what became of a message we sent (on the event loop): record it and tell the open pages."""
@@ -284,6 +286,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     app.state.engine, app.state.index, app.state.indexer, app.state.radio, app.state.updates = engine, index, indexer, radio, updates
     app.state.wiki_updates = wiki_updates
     app.state.mesh, app.state.mesh_store = mesh, mesh_store
+    app.state.tiles = tiles  # a test swaps in one with a fake network
 
     # ---- status / settings --------------------------------------------------------------
 
@@ -334,7 +337,7 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         if radio.active != "meshtastic":
             raise HTTPException(400, "No real radio is connected, so there is nothing to transmit with.")
         if body.to not in {n["id"] for n in radio.nodes()} or body.to == radio.node_id:
-            raise HTTPException(400, "Pick another node this radio has heard (see the Nodes list on the Radio page).")
+            raise HTTPException(400, "Pick another node this radio has heard (see the Nodes page).")
         s = settings()
         if fitter.byte_len(body.text) > s.byte_limit:
             raise HTTPException(400, f"That is {fitter.byte_len(body.text)} bytes; the limit is {s.byte_limit}.")
@@ -712,6 +715,27 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
         path = data / "mesh.db"
         return {"recording": mesh.recording, "retention_days": settings().mesh_retention_days, "datasets": await asyncio.to_thread(mesh_store.counts),
                 "size": path.stat().st_size if path.exists() else 0}
+
+    # ---- street-map tiles (off until Settings -> Map background is on; see maptiles.py) --------------
+
+    @app.get("/api/map/tiles")
+    async def map_tiles_info():
+        info = await asyncio.to_thread(app.state.tiles.stats)
+        return {"enabled": settings().map_tiles, "attribution": ATTRIBUTION, **info}
+
+    @app.delete("/api/map/tiles")
+    async def map_tiles_clear():
+        return {"removed": await asyncio.to_thread(app.state.tiles.clear)}
+
+    @app.get("/api/map/tiles/{z}/{x}/{y}.png")
+    async def map_tile(z: int, x: int, y: int):
+        if not settings().map_tiles:
+            raise HTTPException(404, "The street map is off. Turn it on in Settings.")
+        try:
+            png = await app.state.tiles.get(z, x, y)
+        except TileError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        return Response(png, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
     # ---- the pages built on the history: map trails, telemetry, trends -------------------------------
 

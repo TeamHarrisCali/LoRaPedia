@@ -3,6 +3,7 @@ import { SaveBar } from "../components/SaveBar";
 import { BackupsCard } from "../components/BackupsCard";
 import { MeshAiCard } from "../components/MeshAiCard";
 import { MessagingCard } from "../components/MessagingCard";
+import { MapTilesCard } from "../components/MapTilesCard";
 import { MeshDataCard } from "../components/MeshDataCard";
 import { RadioConfigCard } from "../components/RadioConfigCard";
 import { TabPanel, Tabs, rememberTab, rememberedTab } from "../components/Tabs";
@@ -97,6 +98,7 @@ export function SettingsPage() {
         <MessagingCard draft={draft} set={set} />
         <RadioConfigCard draft={draft} set={set} />
         <MeshDataCard draft={draft} set={set} />
+        <MapTilesCard draft={draft} set={set} />
       </TabPanel>
 
       <TabPanel id="updates" active={tab}>

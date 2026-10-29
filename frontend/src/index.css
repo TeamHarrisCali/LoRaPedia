@@ -16,6 +16,7 @@
   --amber-text: #ffb020;  /* amber used as text/outline */
   --teal: #2dd4bf;
   --danger: #f2545b;
+  --tile-filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.85) saturate(0.55);  /* street-map pictures, darkened to sit in the dark theme */
   color-scheme: dark;
 }
 [data-theme="light"] {
@@ -30,6 +31,7 @@
   --amber-text: #8a5700;
   --teal: #0b6b62;
   --danger: #b8232b;
+  --tile-filter: none;
   color-scheme: light;
 }
 
@@ -55,6 +57,9 @@ body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); 
 h1, h2, h3 { font-family: var(--font-serif); letter-spacing: -0.01em; }
 
 :focus-visible { outline: 2px solid var(--amber-text); outline-offset: 2px; border-radius: 4px; }
+
+/* Street-map pictures (Map page, when turned on). */
+.map-tile { filter: var(--tile-filter); }
 
 /* Radio dot pulses once when a packet arrives (remounted via key). */
 @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--teal) 70%, transparent); } 100% { box-shadow: 0 0 0 10px transparent; } }

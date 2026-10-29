@@ -3,6 +3,7 @@ import { Bubble } from "../components/Bubble";
 import { ByteMeter } from "../components/ByteMeter";
 import { ModelInstaller } from "../components/ModelInstaller";
 import { SaveBar } from "../components/SaveBar";
+import { TabPanel, Tabs, rememberTab, rememberedTab } from "../components/Tabs";
 import { Badge, Button, Card, Dot, Field, Help, PageHeader, SectionTitle, Spinner } from "../components/ui";
 import { api, errorText } from "../lib/api";
 import { useDraft, useSettings } from "../lib/settings";
@@ -10,12 +11,15 @@ import { useToast } from "../lib/toast";
 import type { KbStats, TryResult } from "../lib/types";
 import { usePoll } from "../lib/usePoll";
 
+const TABS = [{ id: "models", label: "Models" }, { id: "tuning", label: "Tuning and prompt" }, { id: "try", label: "Try it" }];
+
 export function Model() {
   const toast = useToast();
   const { defaults } = useSettings();
   const { draft, set, dirty, save, discard } = useDraft();
   const llm = usePoll(() => api.get<{ ok: boolean; detail: string }>("/api/llm/status"), 8000);
   const kb = usePoll(() => api.get<KbStats>("/api/kb/stats"), 15000);
+  const [tab, setTab] = useState(() => rememberedTab("model", "models", TABS.map((t) => t.id)));
   const [q, setQ] = useState("what is a quasar?");
   const [trying, setTrying] = useState(false);
   const [result, setResult] = useState<TryResult | null>(null);
@@ -37,6 +41,9 @@ export function Model() {
     <>
       <PageHeader title="Model" subtitle="The language model that writes answers from Wikipedia text, and the embedding model that finds the right text. Small models are fine here: answers are only a couple of hundred bytes." />
 
+      <Tabs label="Model sections" tabs={TABS} active={tab} onChange={(id) => { setTab(id); rememberTab("model", id); }} />
+
+      <TabPanel id="models" active={tab}>
       <Card className="mb-5">
         <SectionTitle hint="Runs on this machine through Ollama (or any OpenAI-compatible server). No cloud.">Language model</SectionTitle>
         <p className="mb-3 flex items-center gap-2 text-sm" role="status">
@@ -73,6 +80,9 @@ export function Model() {
         )}
       </Card>
 
+      </TabPanel>
+
+      <TabPanel id="tuning" active={tab}>
       <Card className="mb-5">
         <SectionTitle hint="Lower temperature = more literal and repeatable. Facts want low.">Tuning</SectionTitle>
         <div className="grid gap-x-6 sm:grid-cols-3">
@@ -89,6 +99,9 @@ export function Model() {
         <Button className="mt-2" variant="ghost" disabled={!defaults || draft.system_prompt === defaults.system_prompt} onClick={() => defaults && set({ system_prompt: defaults.system_prompt })}>Reset to default</Button>
       </Card>
 
+      </TabPanel>
+
+      <TabPanel id="try" active={tab}>
       <Card className="mb-5">
         <SectionTitle hint="Runs the full pipeline using the settings above, including unsaved edits. Nothing is sent over the radio or logged.">Try it</SectionTitle>
         <form className="flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); void tryIt(); }}>
@@ -109,6 +122,7 @@ export function Model() {
           </div>
         )}
       </Card>
+      </TabPanel>
       <SaveBar dirty={dirty} onSave={() => void save()} onDiscard={discard} />
     </>
   );

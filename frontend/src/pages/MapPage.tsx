@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { MAP_TILES_NOTE } from "../components/MapTilesCard";
 import { MeshMap, snrColor, type MapLink, type MapNode } from "../components/MeshMap";
-import { Badge, Card, EmptyState, PageHeader, Toggle } from "../components/ui";
+import { Badge, Button, Card, EmptyState, PageHeader, Toggle } from "../components/ui";
 import { api, errorText } from "../lib/api";
 import { timeAgo } from "../lib/format";
+import { useSettings } from "../lib/settings";
 import type { MeshLinks, MeshNode, MeshNodes, MeshTrails } from "../lib/types";
 import { distanceKm, fmtDistance, useUnits } from "../lib/units";
 import { usePoll } from "../lib/usePoll";
@@ -12,6 +14,10 @@ const WITHIN = [["any", "Any time", Infinity], ["week", "Last 7 days", 7 * 86400
 
 export function MapPage() {
   const units = useUnits();
+  const { settings, save } = useSettings();
+  const [asking, setAsking] = useState(false);          // the "this will contact OpenStreetMap" question, before the street map is first turned on
+  const street = !!settings?.map_tiles;
+  async function setStreet(on: boolean) { if (settings && await save({ ...settings, map_tiles: on })) setAsking(false); }
   const data = usePoll(() => api.get<MeshNodes>("/api/mesh/nodes"), 10000);
   const [showTrails, setShowTrails] = useState(false);
   const trails = usePoll(() => api.get<MeshTrails>("/api/mesh/trails?days=7"), 60000, showTrails);
@@ -43,7 +49,7 @@ export function MapPage() {
 
   return (
     <>
-      <PageHeader title="Map" subtitle="Every node with a known position, drawn on a plain grid. There is no background map: LoRaPedia works without the internet." />
+      <PageHeader title="Map" subtitle="Every node with a known position. The plain grid works without the internet; turn on the street map to see roads and towns behind the nodes." />
       {data.error && !data.data && <p role="alert" className="mb-4 text-danger">{errorText(data.error)}</p>}
       {data.data && all.length === 0 ? (
         <Card><EmptyState title="Nothing to show yet">Nodes appear here once the radio has heard them and they share a position. Add a made-up mesh on the Nodes page to see how this works.</EmptyState></Card>
@@ -55,9 +61,17 @@ export function MapPage() {
             <Toggle checked={remembered} onChange={setRemembered} label="Include nodes the radio has forgotten" />
             <Toggle checked={showTrails} onChange={setShowTrails} label="Show movement trails" />
             <Toggle checked={showLinks} onChange={setShowLinks} label="Show link quality" />
+            <Toggle checked={street || asking} onChange={(v) => { if (!v) { setAsking(false); void setStreet(false); } else if (street) void setStreet(true); else setAsking(true); }} label="Street map" />
           </div>
+          {asking && !street && (
+            <Card className="mb-3 border-amber/50" as="div">
+              <p className="font-serif text-lg font-semibold">Show a street map?</p>
+              <p className="mt-1 text-sm text-muted">{MAP_TILES_NOTE}</p>
+              <div className="mt-3 flex flex-wrap gap-2"><Button variant="primary" onClick={() => void setStreet(true)}>Turn on the street map</Button><Button onClick={() => setAsking(false)}>Not now</Button></div>
+            </Card>
+          )}
           {shown.length === 0 ? <Card><p className="text-sm text-muted">No node with a position matches.</p></Card> : (
-            <MeshMap nodes={mapNodes} trails={trailLines} links={mapLinks} selected={selected} onSelect={setSelected} formatDistance={(km) => fmtDistance(km, units.distance)} />
+            <MeshMap tiles={street} nodes={mapNodes} trails={trailLines} links={mapLinks} selected={selected} onSelect={setSelected} formatDistance={(km) => fmtDistance(km, units.distance)} />
           )}
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
             <span className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full" style={{ background: "var(--teal)" }} />heard in the last hour</span>

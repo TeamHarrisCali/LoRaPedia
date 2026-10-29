@@ -30,16 +30,19 @@ function fitView(nodes: MapNode[], w: number, h: number): View {
   return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, z: Math.max(MIN_Z, Math.min(MAX_Z - 3, z)) };
 }
 
-/** A plain offline map: nodes on a latitude/longitude grid (Web Mercator) with a scale bar, pan, zoom and optional movement trails.
- *  There is no background picture on purpose: LoRaPedia works without internet, and a background would have to be fetched from one. */
-export function MeshMap({ nodes, trails, routes = [], links = [], selected, onSelect, formatDistance, fitTo }: {
+/** A map of nodes (Web Mercator) with a scale bar, pan, zoom and optional movement trails. By default a plain offline latitude/longitude grid:
+ *  LoRaPedia works without internet. With `tiles`, street-map pictures from OpenStreetMap are drawn behind it; they come through this
+ *  server, which downloads each one once and keeps it (see backend maptiles.py), so what you have looked at keeps working offline. */
+export function MeshMap({ nodes, trails, routes = [], links = [], selected, onSelect, formatDistance, fitTo, tiles = false }: {
   nodes: MapNode[]; trails: MapTrail[]; routes?: MapRoute[]; links?: MapLink[]; selected: string | null; onSelect: (id: string | null) => void;
-  formatDistance: (km: number) => string; fitTo?: MapNode[];
+  formatDistance: (km: number) => string; fitTo?: MapNode[]; tiles?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 640, h: 420 });
   const [view, setView] = useState<View | null>(null);
   const drag = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean } | null>(null);
+  const [bad, setBad] = useState<Set<string>>(new Set());   // tiles the server could not give (offline, or the map server said no)
+  const [attempt, setAttempt] = useState(0);                  // bumped to ask for the failed ones again, a minute later
 
   useEffect(() => {
     const el = box.current;
@@ -48,6 +51,12 @@ export function MeshMap({ nodes, trails, routes = [], links = [], selected, onSe
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (bad.size === 0) return;
+    const t = setTimeout(() => { setBad(new Set()); setAttempt((a) => a + 1); }, 60000);
+    return () => clearTimeout(t);
+  }, [bad]);
 
   const fitted = useMemo(() => fitView(fitTo ?? nodes, size.w, size.h), [fitTo, nodes, size.w, size.h]);
   const v = view ?? fitted;
@@ -86,6 +95,17 @@ export function MeshMap({ nodes, trails, routes = [], links = [], selected, onSe
   const mag = 10 ** Math.floor(Math.log10(target)), r = target / mag;
   const barM = (r < 2 ? 1 : r < 5 ? 2 : 5) * mag;
 
+  // The street-map pictures covering the view: whole tiles at the nearest zoom, scaled a little to fit this exact zoom.
+  const zt = Math.max(0, Math.min(19, Math.round(v.z))), nt = 2 ** zt, tileSize = 256 * 2 ** (v.z - zt);
+  const tileList: { key: string; x: number; y: number }[] = [];
+  if (tiles) {
+    const x0 = Math.max(0, Math.floor((v.x - size.w / 2 / scale) * nt)), x1 = Math.min(nt - 1, Math.floor((v.x + size.w / 2 / scale) * nt));
+    const y0 = Math.max(0, Math.floor((v.y - size.h / 2 / scale) * nt)), y1 = Math.min(nt - 1, Math.floor((v.y + size.h / 2 / scale) * nt));
+    for (let ty = y0; ty <= y1 && tileList.length < 80; ty++) for (let tx = x0; tx <= x1 && tileList.length < 80; tx++) tileList.push({ key: `${zt}/${tx}/${ty}`, x: tx, y: ty });
+  }
+  const noPictures = tiles && tileList.length > 0 && tileList.every((t) => bad.has(t.key));
+  const showGrid = !tiles || noPictures;   // the grid is the fallback: with a street map behind it, it only gets in the way
+
   const showAllLabels = nodes.length <= 20 || v.z >= 12;
   const down = (e: React.PointerEvent) => { (e.currentTarget as Element).setPointerCapture(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, vx: v.x, vy: v.y, moved: false }; };
   const move = (e: React.PointerEvent) => {
@@ -113,8 +133,13 @@ export function MeshMap({ nodes, trails, routes = [], links = [], selected, onSe
       <svg width={size.w} height={size.h} role="application" aria-label="Map of nodes. Drag to move, scroll or use plus and minus to zoom, arrow keys to pan." tabIndex={0}
         className="touch-none cursor-grab outline-offset-2 active:cursor-grabbing" onPointerDown={down} onPointerMove={move} onPointerUp={up} onKeyDown={key}
         onDoubleClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); zoomAt(2, e.clientX - r.left, e.clientY - r.top); }}>
-        {lons.map((l) => <g key={`lo${l}`}><line x1={px(l)} x2={px(l)} y1={0} y2={size.h} stroke="var(--line)" /><text x={px(l) + 4} y={size.h - 6} fontSize="10" fill="var(--muted)">{l.toFixed(dec)}°</text></g>)}
-        {lats.map((l) => <g key={`la${l}`}><line x1={0} x2={size.w} y1={py(l)} y2={py(l)} stroke="var(--line)" /><text x={4} y={py(l) - 3} fontSize="10" fill="var(--muted)">{l.toFixed(dec)}°</text></g>)}
+        {tiles && tileList.map((t) => (
+          <image key={t.key} href={`/api/map/tiles/${t.key}.png${attempt ? `?a=${attempt}` : ""}`} className="map-tile" preserveAspectRatio="none"
+            x={((t.x / nt - v.x) * scale + size.w / 2).toFixed(1)} y={((t.y / nt - v.y) * scale + size.h / 2).toFixed(1)} width={(tileSize + 0.6).toFixed(1)} height={(tileSize + 0.6).toFixed(1)}
+            onError={() => setBad((b) => (b.has(t.key) ? b : new Set(b).add(t.key)))} />
+        ))}
+        {showGrid && lons.map((l) => <g key={`lo${l}`}><line x1={px(l)} x2={px(l)} y1={0} y2={size.h} stroke="var(--line)" /><text x={px(l) + 4} y={size.h - 6} fontSize="10" fill="var(--muted)">{l.toFixed(dec)}°</text></g>)}
+        {showGrid && lats.map((l) => <g key={`la${l}`}><line x1={0} x2={size.w} y1={py(l)} y2={py(l)} stroke="var(--line)" /><text x={4} y={py(l) - 3} fontSize="10" fill="var(--muted)">{l.toFixed(dec)}°</text></g>)}
         {trails.map((t) => (
           <polyline key={t.id} fill="none" stroke="var(--amber)" strokeOpacity={0.55} strokeWidth="2" strokeLinejoin="round" strokeDasharray="5 4"
             points={t.points.map(([lat, lon]) => `${px(lon).toFixed(1)},${py(lat).toFixed(1)}`).join(" ")} />
@@ -155,6 +180,12 @@ export function MeshMap({ nodes, trails, routes = [], links = [], selected, onSe
           <text x="0" y="-8" fontSize="11" fill="var(--ink)" stroke="var(--surface)" strokeWidth="3" paintOrder="stroke">{formatDistance(barM / 1000)}</text>
         </g>
       </svg>
+      {tiles && (
+        <div className="absolute bottom-0 left-0 max-w-[70%] rounded-tr-md bg-bg/80 px-2 py-0.5 text-[11px] text-muted">
+          {noPictures ? <span className="text-amber-text">Street map unavailable (no internet?). Showing the grid. </span> : null}
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="underline">© OpenStreetMap contributors</a>
+        </div>
+      )}
       <div className="absolute right-2 top-2 flex flex-col gap-1.5">
         <Button aria-label="Zoom in" onClick={() => zoomAt(1.6, size.w / 2, size.h / 2)}>+</Button>
         <Button aria-label="Zoom out" onClick={() => zoomAt(1 / 1.6, size.w / 2, size.h / 2)}>−</Button>

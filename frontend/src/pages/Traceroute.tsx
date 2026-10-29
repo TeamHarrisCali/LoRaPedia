@@ -36,6 +36,7 @@ function Path({ title, hops }: { title: string; hops: TraceHop[] | null }) {
 
 function TraceView({ t }: { t: TraceRow }) {
   const units = useUnits();
+  const { settings: app } = useSettings();
   const known = (hops: TraceHop[] | null) => (hops ?? []).map((h) => (h.lat !== null ? { lat: h.lat, lon: h.lon!, label: hopName(h) } : null));
   const routes: MapRoute[] = [{ id: "there", hops: known(t.path_towards) }, ...(t.path_back ? [{ id: "back", hops: known(t.path_back), back: true }] : [])];
   const placed = [...(t.path_towards ?? []), ...(t.path_back ?? [])].filter((h) => h.lat !== null);
@@ -54,7 +55,7 @@ function TraceView({ t }: { t: TraceRow }) {
       <div className="mt-4">
         {nodes.length >= 2 ? (
           <>
-            <MeshMap nodes={nodes} trails={[]} routes={routes} selected={null} onSelect={() => {}} formatDistance={(km) => fmtDistance(km, units.distance)} />
+            <MeshMap tiles={!!app?.map_tiles} nodes={nodes} trails={[]} routes={routes} selected={null} onSelect={() => {}} formatDistance={(km) => fmtDistance(km, units.distance)} />
             <p className="mt-2 text-sm text-muted">Solid amber is the way there, dashed teal the way back, and a dotted line crosses a stretch where a node's position is not known.</p>
           </>
         ) : <p className="text-sm text-muted">Too few nodes on this route have a known position to draw it.</p>}

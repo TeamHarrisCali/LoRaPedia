@@ -94,6 +94,7 @@ not be indexed yet.
 | `mesh/store.py` | `mesh.db`: remembered nodes, telemetry, position trails, hourly packet/signal/hop counts, your notes; pruning. |
 | `mesh/service.py` | Buffers what the radio hears on the event loop, writes it in batches, and builds the node list and summary. Never transmits. |
 | `mesh/sim.py` | A made-up mesh for demos and tests. |
+| `maptiles.py` | Street-map pictures for the Map page: off until `map_tiles` is on; fetches only from tile.openstreetmap.org (a fixed address, not a setting), only what is asked for, two at a time, validated as PNG, kept in `tiles/` (500 MB, refreshed after a month). The browser only ever talks to this server. |
 | `backups.py` | Verified backups of that database: daily, before updates and restores; download, upload, restore. |
 | `sources.py` | Which retrieved article an answer came from, for the web panel only (nothing about it is sent over the radio). |
 | `system.py`, `demo.py`, `sample.py` | Hardware detection; demo data; a tiny generated ZIM. |

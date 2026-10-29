@@ -5,7 +5,7 @@ import { useToast } from "./toast";
 import type { QueryRow } from "./types";
 
 const OUTCOMES: Record<string, string> = {
-  ignored: "The node ignored that message. Check the trigger mode and allow/block lists on the Radio page.",
+  ignored: "The node ignored that message. Check the allow and block lists on the Limits page.",
   rate_limited: "That fake node asked too recently. Wait a moment and try again.",
   queue_full: "The queue is full. Try again shortly.",
   command: "That was a command (?help, ?more, ?stats). Its reply goes to the simulator outbox, not the feed.",

@@ -8,7 +8,7 @@ import { api, errorText } from "../lib/api";
 import { greeting } from "../lib/format";
 import { useSettings } from "../lib/settings";
 import { useToast } from "../lib/toast";
-import type { Health, KbStats, RadioStatus, WizardState } from "../lib/types";
+import type { Health, KbStats, MeshNodes, RadioStatus, WizardState } from "../lib/types";
 import { useTestQuestion } from "../lib/useTestQuestion";
 import { useQueries } from "../lib/useQueries";
 import { usePoll } from "../lib/usePoll";
@@ -29,6 +29,7 @@ export function Dashboard() {
   const health = usePoll(() => api.get<Health>("/api/health"), 3000);
   const radio = usePoll(() => api.get<RadioStatus>("/api/radio/status"), 5000);
   const llm = usePoll(() => api.get<{ ok: boolean; detail: string }>("/api/llm/status"), 10000);
+  const mesh = usePoll(() => api.get<MeshNodes>("/api/mesh/nodes"), 15000);
   const kb = usePoll(() => api.get<KbStats>("/api/kb/stats"), 10000);
   const act = usePoll(() => api.get<{ hours: number[]; queries: number; avg_latency_s: number }>("/api/stats/activity"), 15000);
   const wizard = usePoll(() => api.get<WizardState>("/api/wizard"), 20000);
@@ -55,13 +56,15 @@ export function Dashboard() {
         </Card>
       )}
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-5">
         <StatCard title="Radio" to="/radio"
           value={r?.active === "meshtastic" ? (r.device.short_name ?? r.node_id) : "Simulator"}
           sub={r?.active === "meshtastic" ? <span className="inline-flex items-center gap-1.5"><SignalGlyph snr={r.snr} />{r.rssi != null ? `${r.rssi} dBm` : "waiting for packets"}</span> : (r?.error ?? "no device")} />
-        <StatCard title="LLM" to="/model" value={settings?.llm_backend === "mock" ? "Demo mode" : (settings?.llm_model ?? "–")}
+        <StatCard title="Mesh" to="/nodes" value={mesh.data ? `${mesh.data.summary.nodes_total} node${mesh.data.summary.nodes_total === 1 ? "" : "s"}` : "–"}
+          sub={mesh.data ? (mesh.data.summary.nodes_total === 0 ? "none heard yet" : `${mesh.data.summary.heard_1h} heard in the last hour`) : "checking…"} />
+        <StatCard title="Model" to="/model" value={settings?.llm_backend === "mock" ? "Demo mode" : (settings?.llm_model ?? "–")}
           sub={llm.data ? (llm.data.ok ? "ready" : llm.data.detail) : "checking…"} />
-        <StatCard title="Wikipedia" to="/knowledge" value={kb.data && kb.data.articles > 0 ? kb.data.articles.toLocaleString() : "Demo data"}
+        <StatCard title="Knowledge" to="/knowledge" value={kb.data && kb.data.articles > 0 ? kb.data.articles.toLocaleString() : "Demo data"}
           sub={kb.data && kb.data.articles > 0 ? "articles indexed" : "add a ZIM to expand"} />
         <StatCard title="Today" to="/feed" value={`${act.data?.queries ?? 0} Qs`} sub={`${(act.data?.avg_latency_s ?? 0).toFixed(1)}s average`} />
       </div>

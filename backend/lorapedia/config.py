@@ -46,6 +46,9 @@ class Settings(BaseModel):
     # How the web interface shows temperatures and distances. The data itself is always kept in Celsius and kilometres.
     temperature_unit: Literal["C", "F"] = "C"
     distance_unit: Literal["km", "mi"] = "km"
+    # Street-map background on the Map page. Off: a plain offline grid and nothing is ever fetched. On: this server downloads the tiles
+    # being looked at from OpenStreetMap (see maptiles.py) and keeps them.
+    map_tiles: bool = False
 
     # Mesh AI. Questions about the mesh itself (nodes nearby, batteries, sensors...) are answered from mesh.db by fixed lookups, not by the model.
     mesh_questions: bool = True

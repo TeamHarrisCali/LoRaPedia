@@ -13,6 +13,7 @@ export interface Settings {
   ai_fallback: boolean;
   auto_backup: boolean;
   temperature_unit: "C" | "F";
+  map_tiles: boolean;
   distance_unit: "km" | "mi";
   mesh_record: boolean;
   mesh_questions: boolean;
