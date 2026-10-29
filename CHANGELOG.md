@@ -5,6 +5,28 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-29
+
+A patch release: a better indexing display and a fix for fresh installs. It is the code of the two betas numbered 0.5.0-beta.1 and 0.5.0-beta.2,
+released under a patch number because the change is small (from now on only a major update gets a `0.x.0` number).
+
+### Changed
+- **Indexing progress is in the top bar.** While a Wikipedia file is being indexed, the Knowledge entry next to Radio and Model shows the
+  percentage done (and "paused" if you paused it), on every page and on a phone too; hovering the dot also names the pass ("Pass 1 of 2").
+  Before, the dot only turned amber and the number was on the Knowledge page. The Indexing tab on the Knowledge page carries the same
+  percentage when you are looking at another tab, and the top bar now fits on one line on a phone.
+
+### Fixed
+- **Indexing failed on a new install built with libzim 4.0.0**, which renamed the call LoRaPedia used to read an article by position
+  (`AttributeError: 'libzim.Archive' object has no attribute '_get_entry_by_id'`). It now uses whichever name the installed libzim has,
+  and CI runs against the newest libzim, so a change like this shows up before a release. Images released before this (up to 0.4.0) contain
+  libzim 3.13.1 and are not affected.
+
+### If you tried the betas
+0.5.0-beta.1 and 0.5.0-beta.2 are the same code and are superseded by this release. A node on one of them stays there (updates never go to a
+lower number, and 0.5.0-beta.2 is higher than 0.4.1) until the 0.5.0 release; to come back to the stable line now, use **Settings → Updates →
+Return to stable**.
+
 ## [0.5.0-beta.2] - 2026-10-29
 
 A test version for the beta channel.
