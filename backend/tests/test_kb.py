@@ -1,5 +1,7 @@
 """Knowledge-base tests against a sample ZIM generated on the fly with libzim."""
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
