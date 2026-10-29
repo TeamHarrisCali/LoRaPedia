@@ -5,6 +5,19 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-29
+
+**Easier navigation and an optional street map, now stable.** This is [0.4.0-beta.1] with nothing added: tested on a real node and promoted.
+See that section below for the details.
+
+- The sidebar is grouped (Overview, Mesh, Insights, Answers, Radio), **Go to…** (`Ctrl+K`, `⌘K` or `/`) finds a page or a node, the phone gets a
+  menu button, and Model, Radio and Knowledge are in tabs.
+- **Street map**, optional and off by default: *Settings → Mesh and radio → Street map*, or the switch on the Map page. This server fetches
+  OpenStreetMap pictures only for what you look at, keeps them, and the browser never contacts OpenStreetMap itself. OpenStreetMap can see this
+  computer's address and which places were asked for; nothing about nodes is sent.
+
+The compose file is unchanged: update the image from Settings → Updates (or let the node do it).
+
 ## [0.4.0-beta.1] - 2026-10-29
 
 A test version for the beta channel: easier navigation, and an optional street map.
