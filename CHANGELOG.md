@@ -5,6 +5,15 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.5.0-beta.2] - 2026-10-29
+
+A test version for the beta channel.
+
+### Changed
+- **Indexing progress is in the top bar.** While a Wikipedia file is being indexed, the Knowledge entry next to Radio and Model shows the
+  percentage done (and "paused" if you paused it), on every page and on a phone too; hovering the dot also names the pass ("Pass 1 of 2").
+  Before, the dot only turned amber and the number was on the Knowledge page. The top bar fits on one line on a phone.
+
 ## [0.5.0-beta.1] - 2026-10-29
 
 A test version for the beta channel.

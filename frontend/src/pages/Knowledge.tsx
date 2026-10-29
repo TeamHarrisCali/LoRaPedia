@@ -6,6 +6,7 @@ import { ZimLibrary } from "../components/ZimLibrary";
 import { Badge, Button, Card, EmptyState, PageHeader, SectionTitle } from "../components/ui";
 import { api, errorText } from "../lib/api";
 import { fmtBytes, timeAgo } from "../lib/format";
+import { indexPct } from "../lib/indexing";
 import { useToast } from "../lib/toast";
 import type { IndexProgress, KbStats, SearchResult } from "../lib/types";
 import { usePoll } from "../lib/usePoll";
@@ -15,7 +16,7 @@ const TABS = [{ id: "library", label: "Library" }, { id: "indexing", label: "Ind
 /** What the Indexing tab shows when you are looking at another tab: whether work is going on, and how far it has got. */
 function indexBadge(p: IndexProgress | null | undefined) {
   if (!p) return undefined;
-  if (p.state === "running") return <Badge tone="amber">{p.entries_total ? `${Math.min(99, Math.floor((p.entries_done / p.entries_total) * 100))}%` : "running"}</Badge>;
+  if (p.state === "running") return <Badge tone="amber">{p.entries_total ? `${indexPct(p)}%` : "running"}</Badge>;
   if (p.state === "paused") return <Badge tone="muted">paused</Badge>;
   if (p.state === "error") return <Badge tone="danger">stopped</Badge>;
   return undefined;
