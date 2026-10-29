@@ -5,6 +5,42 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-28
+
+**The MeshtasticLLM merge is finished and is now the stable release.** LoRaPedia remembers the mesh around it, answers questions about
+it, and lets the operator talk to the mesh and tune the radio, while still answering questions by direct message only. Everything below
+was tested as betas ([0.2.0-beta.1] to [0.3.0-beta.1]); each item has its details in those sections.
+
+### Added
+- **Mesh data and a Nodes page**: every node the radio hears (name, hardware, role, hops, signal, battery, sensors, position), kept in a
+  separate `mesh.db` for 30 days by default (Settings → Mesh data; off if you like). Message content is never kept.
+- **Map, Telemetry and Trends**: an offline map (no pictures fetched from the internet), sensor averages and history with a CSV export,
+  and when the mesh is busiest. Temperature and distance units are settings.
+- **Traceroute and Link quality**: on your click only, to one node at a time; signal against distance for directly heard nodes.
+- **Mesh AI**: "how many nodes are around?", "which node has the lowest battery?" and the like are answered from what the radio has heard,
+  by a plain-rule router with read-only lookups and **no language model**. Per-person follow-up memory (in RAM only, `?reset` clears it).
+- **Messages and delivery tracking**: send a direct message to a node from the app, see for every answer whether it was delivered,
+  passed on, not confirmed or failed, and a 30-minute chat window in which the AI stays quiet. A public post exists but is **off by
+  default** and is a separate path the AI can never use.
+- **Radio settings page**: read the radio's own settings; **changing them is off until you turn it on**, every change is checked,
+  confirmed and preceded by a saved copy; set the radio's name and a fixed position. Passwords and keys are never shown or written.
+- **Limits page**: a daily question limit per node, with a limit of its own for any node, plus block and allow lists.
+- Long lists are paged, big pages are in tabs, and picking a node is a search box.
+
+### Changed
+- Updates read up to 100 releases and choose the highest version numerically (GitHub lists `beta.10` below `beta.2`). **To get the fixed
+  updater, run `docker compose pull updater && docker compose up -d updater` once.**
+- Block and allow lists moved from the Radio page to the Limits page.
+
+### Fixed
+- CSV exports can no longer run a stranger's text as a spreadsheet formula.
+- A long answer from the model's own memory is continued over several messages instead of being cut off with "...".
+
+### Upgrading from 0.1.x
+The compose file is unchanged since 0.1.11: update the image from Settings → Updates (or let the node do it). Your settings, question
+log and index are kept; a new `mesh.db` appears beside them. Nothing new is switched on that transmits: radio settings editing and
+public posting are off, and traceroute and messages go out only when you ask.
+
 ## [0.3.0-beta.1] - 2026-10-28
 
 A test version for the beta channel. **It replaces 0.2.0-beta.10, which no node could see.** Everything in beta.10 (per-node limits, the Limits

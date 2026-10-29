@@ -184,7 +184,7 @@ the *Messages* page (off by default, see below): nothing the AI does, and nothin
 | `?reset` (or `?forget`) | Forget the conversation so far (see *Follow-up questions* below) |
 | `?ping` | A range test: how your message reached the node ("heard you directly: SNR 5.5 dB, RSSI -42 dBm", or how many relays it passed through and the signal of the last hop). Needs no model |
 
-**Questions about the mesh** *(beta)*. A question that is about the mesh itself is answered from what the radio has heard, not from
+**Questions about the mesh**. A question that is about the mesh itself is answered from what the radio has heard, not from
 Wikipedia: "how many nodes are around?", "nearest router", "which node has the lowest battery?", "who was last heard?", "which nodes
 have gone quiet?", "temperature outside", "best links", "when is the mesh busiest?", "what's been happening on the mesh?", "tell me
 about node Ridge", "battery history for Ridge", "what time is it?". It is done by a fixed menu of hand-written lookups, and **no language
@@ -195,19 +195,19 @@ and what is not known is said so ("I have not heard any other node yet") instead
 short name, never by the label or note you gave it. The names and battery levels are what those nodes already broadcast to the whole
 mesh, and no position is ever given out, only distances from this radio when it knows where it is. *Settings → Mesh AI* turns it off.
 
-**Follow-up questions** *(beta)*. Each person's last few answered questions are kept in memory, so "and its population?" works
+**Follow-up questions**. Each person's last few answered questions are kept in memory, so "and its population?" works
 after "what is the capital of Japan?". It is in memory only (never on disk, never in a backup), kept separately for each person (nobody's
 conversation is ever shown to the model while answering someone else), forgotten after 24 hours without a question (*Settings → Mesh AI*
 sets the time, 0 turns it off), when they send `?reset`, or when LoRaPedia restarts. Only answers found in Wikipedia are remembered:
 not mesh answers, not guesses. For questions that depend on the date ("how old is…", "today", "since…") the model is also told today's date.
 
-**Did the answer arrive?** *(beta)* Every message LoRaPedia sends over a real radio asks the mesh for an acknowledgement, and the Live
+**Did the answer arrive?** Every message LoRaPedia sends over a real radio asks the mesh for an acknowledgement, and the Live
 Feed shows what came back for each answer: **Delivered** (the other node confirmed it), **Passed on** (a neighbour was heard repeating
 it, but the node itself has not confirmed), **Sent, waiting**, **Not confirmed** (nothing heard in 3 minutes: it may still have arrived,
 because the confirmation can be lost) or **Failed** with the reason the mesh gave (for example "no route to the node"). An answer in
 several parts is delivered only when every part was. The simulator sends nothing over the air, so it shows no delivery report.
 
-**Per-node limits** *(beta)*. The rate limit only spaces a node's questions out; the *Limits* page also gives each node a **daily
+**Per-node limits**. The rate limit only spaces a node's questions out; the *Limits* page also gives each node a **daily
 allowance** (*Questions per node per day*, 0 = no limit, with a number of its own for any node). A node that reaches it is told once
 ("Daily limit reached (N questions). Try again tomorrow.") and ignored until this computer's midnight, so a chatty node cannot spend all the
 model's time or the mesh's airtime. Commands (`?ping`, `?stats`, `?help`, `?reset`) never count; a question counts when it is accepted, even
@@ -215,11 +215,11 @@ one held for its turn or one whose answer failed; a question turned away as "bus
 after a restart. Blocking and allowing nodes moved here from the Radio page: a blocked node is ignored entirely, and if anything is allowed,
 only allowed nodes are answered.
 
-**Finding things in long lists** *(beta)*. Long lists are shown a page at a time (Nodes, Live Feed, readings, traceroute history, link
+**Finding things in long lists**. Long lists are shown a page at a time (Nodes, Live Feed, readings, traceroute history, link
 quality, the node lists), the Settings and Radio settings pages are split into tabs, and wherever you choose a node you type part of its
 name or id instead of scrolling a drop-down.
 
-**Radio settings** *(beta)*. The *Radio settings* page reads the radio's own configuration. Changing it is **off by default**
+**Radio settings**. The *Radio settings* page reads the radio's own configuration. Changing it is **off by default**
 (*Settings → Mesh and radio → Radio settings editor*), because a wrong region can be illegal and a wrong LoRa preset cuts the radio off from
 your mesh. With it on, the form is generated from the radio's own definitions so every value is type- and range-checked before anything is
 sent; the confirmation lists each change and its risk; a copy of the current settings is kept first (the newest 40 are kept, and restoring one
@@ -229,7 +229,7 @@ security keys, MQTT) and the Bluetooth PIN are left out entirely, and the AI and
 The web interface has no password: while editing is on, anyone who can open it could change the radio, so leave it off unless only you can
 reach it. Not yet tried against a real radio's firmware: it is tested against the library's own configuration definitions with a stand-in radio.
 
-**Messages you type** *(beta)*. The *Messages* page sends a direct message to one node (never to everyone), after you pick the node,
+**Messages you type**. The *Messages* page sends a direct message to one node (never to everyone), after you pick the node,
 one at a time, with a report of whether it arrived. A message written there is yours: the AI never sends it, never sees it, and the
 page says so. **Chats:** so your friend's "ok, see you there" is not answered with a Wikipedia article, for 30 minutes after you write to
 a node (*Settings → Messages*, 0 turns it off) what that node sends back is kept for you on the page and the AI stays out of it. Each
@@ -283,15 +283,15 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 | **Radio** | Connection (USB / network / Bluetooth / simulator), trigger prefixes, hop limit, **byte limit (50 to 233)**, multi-part and its cap, pause between sends |
 | **Model** | Language and embedding model (install with progress), temperature, max tokens, passages retrieved, system prompt (with *Reset to default*), a "try it" box showing the byte count |
 | **Knowledge** | Wikipedia files, downloads, indexing, a search playground |
-| **Map** *(beta)* | Every node with a known position on a plain offline grid with a scale bar: pan, zoom, search, filter by how recently it was heard, optional movement trails, and a card with distance from this radio. There is no background map picture, on purpose: LoRaPedia works without the internet |
-| **Traceroute** *(beta)* | Ask the mesh which way a packet takes to one node and back, with the signal at each hop, drawn on a map and saved to a history. It transmits, so it only ever runs when you press the button: one at a time, the same node at most every 30 seconds, never to everyone, never from the AI |
-| **Link quality** *(beta)* | How well your radio hears the nodes that reach it directly: signal against distance with the decode limit marked, and a table. Also available as an overlay on the Map |
-| **Telemetry** *(beta)* | What nodes broadcast: sensor averages around you (each node counted once), battery, voltage, channel use, temperature, humidity and pressure over time for the nodes you pick, a table of recent readings, and a CSV export |
-| **Trends** *(beta)* | When the mesh is busiest (by hour of the day), a heat map of the last week, and how far packets travel (directly, or through how many relays). Counts only |
-| **Limits** *(beta)* | Who may ask and how much: a **daily limit** of questions per node (and a number of its own for any node, 0 = no limit for it), **block** a node, or **allow** only chosen nodes. Shows each node's questions today against its limit, in tabs (everyone, asked today, blocked, allowed, own limit) with a search box |
-| **Radio settings** *(beta)* | What is stored on the radio itself: region, role, LoRa preset, hop limit, power, position and telemetry intervals, and more, in tabs, with a search box to find a setting. Looking is always allowed; **changing is off until you turn it on in Settings**, then every change is checked, shown with what could go wrong, confirmed, written in one transaction, and preceded by a saved copy you can restore. Also the radio's name and a **fixed position** (a radio with no GPS has no position, so the Map cannot place it and distances cannot be worked out). Wi-Fi passwords, keys and MQTT credentials are never shown, copied or written |
-| **Messages** *(beta)* | Write to a node yourself: a direct message to one node, with a report of whether it arrived. After you write to a node, what it sends back (unless it starts with `?` or `!wiki`) comes to this page for a while instead of being answered by the AI. Also, **off by default**, a post to a public channel that you type and confirm yourself |
-| **Nodes** *(beta)* | Every node the radio has heard: names, hardware, hops, signal, battery, sensors, last position, and a history of each. Search and filter, and add your own label and note to any node |
+| **Map** | Every node with a known position on a plain offline grid with a scale bar: pan, zoom, search, filter by how recently it was heard, optional movement trails, and a card with distance from this radio. There is no background map picture, on purpose: LoRaPedia works without the internet |
+| **Traceroute** | Ask the mesh which way a packet takes to one node and back, with the signal at each hop, drawn on a map and saved to a history. It transmits, so it only ever runs when you press the button: one at a time, the same node at most every 30 seconds, never to everyone, never from the AI |
+| **Link quality** | How well your radio hears the nodes that reach it directly: signal against distance with the decode limit marked, and a table. Also available as an overlay on the Map |
+| **Telemetry** | What nodes broadcast: sensor averages around you (each node counted once), battery, voltage, channel use, temperature, humidity and pressure over time for the nodes you pick, a table of recent readings, and a CSV export |
+| **Trends** | When the mesh is busiest (by hour of the day), a heat map of the last week, and how far packets travel (directly, or through how many relays). Counts only |
+| **Limits** | Who may ask and how much: a **daily limit** of questions per node (and a number of its own for any node, 0 = no limit for it), **block** a node, or **allow** only chosen nodes. Shows each node's questions today against its limit, in tabs (everyone, asked today, blocked, allowed, own limit) with a search box |
+| **Radio settings** | What is stored on the radio itself: region, role, LoRa preset, hop limit, power, position and telemetry intervals, and more, in tabs, with a search box to find a setting. Looking is always allowed; **changing is off until you turn it on in Settings**, then every change is checked, shown with what could go wrong, confirmed, written in one transaction, and preceded by a saved copy you can restore. Also the radio's name and a **fixed position** (a radio with no GPS has no position, so the Map cannot place it and distances cannot be worked out). Wi-Fi passwords, keys and MQTT credentials are never shown, copied or written |
+| **Messages** | Write to a node yourself: a direct message to one node, with a report of whether it arrived. After you write to a node, what it sends back (unless it starts with `?` or `!wiki`) comes to this page for a while instead of being answered by the AI. Also, **off by default**, a post to a public channel that you type and confirm yourself |
+| **Nodes** | Every node the radio has heard: names, hardware, hops, signal, battery, sensors, last position, and a history of each. Search and filter, and add your own label and note to any node |
 | **Settings** | Rate limits, queue length, AI-memory fallback, *Mesh AI* (mesh questions on or off, how long follow-ups are remembered), theme, temperature and distance units, backups, mesh data, CSV export of the log, demo data |
 
 Environment variables exist for deployment only: `LORAPEDIA_DATA` (data folder), `LORAPEDIA_HOST`,
@@ -351,7 +351,7 @@ edition, never your own files), only when the node is quiet, never without enoug
 index, and never rebuilds your index on its own. If it cannot start, Settings says why and it tries again a day later.
 Updating takes a while (a download, then re-indexing) and questions keep being answered meanwhile.
 
-**Mesh data** *(beta)*. To build the Nodes page, LoRaPedia remembers what the radio hears from other nodes: their names, hardware,
+**Mesh data**. To build the Nodes page, LoRaPedia remembers what the radio hears from other nodes: their names, hardware,
 last known position, battery and sensor readings, signal strength and how many relays a packet passed through. It never keeps the
 content of any message. It stays on this computer in `mesh.db` (separate from your settings and question log, and not part of
 *Backups*), history is deleted after 30 days by default (a node not heard for 90 days is forgotten, and position trails live three
