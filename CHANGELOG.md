@@ -5,6 +5,18 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-09
+
+**Clear questions, now stable.** This is [0.5.0-beta.3] with nothing added: tested on a copy of a real node and promoted. It also carries what
+0.4.1 released (indexing progress in the top bar, the libzim 4 fix); the two betas numbered 0.5.0-beta.1 and beta.2 were that code.
+
+- **Clear… on the Dashboard and the Live Feed** deletes the questions logged in the last hour, 24 hours, 7 days or 30 days, or all of them,
+  after telling you how many that is; a trash button deletes a single question. The text is overwritten in the log file, open pages drop it at
+  once, and the node forgets its follow-up memory. Anyone who asked today gets today's questions back (their daily limit counts from the same
+  log). **Backups taken earlier still hold the questions** until they are replaced or deleted (Settings → Updates and backups).
+
+The compose file is unchanged: update the image from Settings → Updates (or let the node do it).
+
 ## [0.5.0-beta.3] - 2026-11-09
 
 A test version for the beta channel.
