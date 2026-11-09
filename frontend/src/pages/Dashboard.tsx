@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { ClearHistory } from "../components/ClearHistory";
 import { QueryItem } from "../components/QueryItem";
 import { Sparkline } from "../components/Sparkline";
 import { SignalGlyph } from "../components/SignalGlyph";
@@ -87,13 +88,16 @@ export function Dashboard() {
         {answer && <ul className="mt-4"><QueryItem q={answer} /></ul>}
       </Card>
 
-      <SectionTitle>Recent</SectionTitle>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-xl font-semibold">Recent</h2>
+        {queries.length > 0 && <ClearHistory onCleared={() => { void reload(); void act.reload(); }} />}
+      </div>
       {loaded && queries.length === 0 ? (
         <EmptyState title="No questions yet">
           <p>Ask one above, or load some sample conversations to see how the dashboard looks.</p>
           <Button className="mt-3" onClick={seed}>Load demo data</Button>
         </EmptyState>
-      ) : <ul className="space-y-3">{queries.map((q) => <QueryItem key={q.id} q={q} />)}</ul>}
+      ) : <ul className="space-y-3">{queries.map((q) => <QueryItem key={q.id} q={q} onDeleted={() => { void reload(); void act.reload(); }} />)}</ul>}
     </>
   );
 }

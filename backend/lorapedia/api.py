@@ -413,6 +413,44 @@ def create_app(data_dir: str | None = None, *, llm=None, embedder: Embedder | No
     async def queries(limit: int = 50):
         return store.recent_queries(limit)
 
+    # Clearing the log, like clearing browser history: the last N hours, or everything. DELETE on purpose: a web page on another site
+    # cannot send one to this computer (the browser asks first, and this server answers no).
+    def clear_range(hours: float | None, everything: bool) -> float | None:
+        if everything == (hours is not None):
+            raise HTTPException(400, "Say how much to clear: hours=N (the last N hours) or all=true, not both and not neither.")
+        if hours is None:
+            return None
+        if not 0 < hours <= 24 * 3650:
+            raise HTTPException(400, "hours must be more than 0 and at most ten years.")
+        return time.time() - hours * 3600
+
+    @app.get("/api/queries/count")
+    async def queries_count(hours: float | None = None, all: bool = False):
+        """How many questions a clear of the same range would delete (so the page can say so before it does)."""
+        return {"count": await asyncio.to_thread(store.count_queries, clear_range(hours, all))}
+
+    @app.delete("/api/queries")
+    async def queries_clear(hours: float | None = None, all: bool = False):
+        since = clear_range(hours, all)
+        result = await asyncio.to_thread(store.delete_queries, since)
+        if result["deleted"]:
+            engine.memory.clear()  # the follow-up memory is made of these questions
+            if result["newest"] >= engine.midnight():
+                engine.forget_counts()  # today's daily-limit counts are read from the log
+            await broadcast({"type": "cleared", "since": since if since is not None else 0})
+        return {"deleted": result["deleted"]}
+
+    @app.delete("/api/queries/{query_id}")
+    async def query_delete(query_id: int):
+        gone = await asyncio.to_thread(store.delete_query, query_id)
+        if gone is None:
+            raise HTTPException(404, "No such question.")
+        engine.memory.forget(gone["sender_id"])
+        if gone["ts"] >= engine.midnight():
+            engine.forget_counts()
+        await broadcast({"type": "cleared", "ids": [query_id]})
+        return {"deleted": 1}
+
     # ---- knowledge base -----------------------------------------------------------------
 
     @app.get("/api/kb/library")

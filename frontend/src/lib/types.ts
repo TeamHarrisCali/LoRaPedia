@@ -212,6 +212,7 @@ export type LiveEvent =
   | { type: "radio"; status: RadioStatus }
   | { type: "delivery"; packet_id: number; state: DeliveryState; detail: string | null }
   | { type: "message"; node_id: string | null; direction: "out" | "in" }
+  | { type: "cleared"; since?: number; ids?: number[] }
   | { type: "error"; detail: string };
 
 export interface WikiPackage {

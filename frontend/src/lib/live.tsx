@@ -13,9 +13,11 @@ interface Live {
   /** Increment when the radio reports what became of a message, or a message arrives for the operator: pages that list them refetch. */
   deliveryTick: number;
   messageTick: number;
+  /** Increments when questions were deleted (here or from another window): lists refetch what is left. */
+  clearedTick: number;
 }
 
-const Ctx = createContext<Live>({ connected: false, rxTick: 0, queries: [], radio: null, lastError: null, deliveryTick: 0, messageTick: 0 });
+const Ctx = createContext<Live>({ connected: false, rxTick: 0, queries: [], radio: null, lastError: null, deliveryTick: 0, messageTick: 0, clearedTick: 0 });
 export const useLive = () => useContext(Ctx);
 
 export function LiveProvider({ children }: { children: ReactNode }) {
@@ -26,6 +28,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [lastError, setLastError] = useState<string | null>(null);
   const [deliveryTick, setDeliveryTick] = useState(0);
   const [messageTick, setMessageTick] = useState(0);
+  const [clearedTick, setClearedTick] = useState(0);
   const retry = useRef(0);
 
   useEffect(() => {
@@ -51,6 +54,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           }));
           setDeliveryTick((n) => n + 1);
         } else if (ev.type === "message") setMessageTick((n) => n + 1);
+        else if (ev.type === "cleared") { setQueries([]); setClearedTick((n) => n + 1); }   // what is left is fetched again, so nothing deleted stays on screen
         else if (ev.type === "error") setLastError(ev.detail);
       };
       ws.onclose = () => {
@@ -62,6 +66,6 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     return () => { closed = true; clearTimeout(timer); ws?.close(); };
   }, []);
 
-  const value = useMemo(() => ({ connected, rxTick, queries, radio, lastError, deliveryTick, messageTick }), [connected, rxTick, queries, radio, lastError, deliveryTick, messageTick]);
+  const value = useMemo(() => ({ connected, rxTick, queries, radio, lastError, deliveryTick, messageTick, clearedTick }), [connected, rxTick, queries, radio, lastError, deliveryTick, messageTick, clearedTick]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

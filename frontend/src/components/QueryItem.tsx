@@ -4,12 +4,13 @@ import { partsOf } from "../lib/useQueries";
 import type { QueryRow } from "../lib/types";
 import { Bubble, Typewriter } from "./Bubble";
 import { ByteMeter } from "./ByteMeter";
+import { DeleteQuestion } from "./DeleteQuestion";
 import { DeliveryBadge } from "./DeliveryBadge";
 import { Icon } from "./icons";
 import { Badge } from "./ui";
 
 /** One question/answer exchange. With `expandable`, clicking reveals retrieved chunks and the full prompt. */
-export function QueryItem({ q, expandable = false }: { q: QueryRow; expandable?: boolean }) {
+export function QueryItem({ q, expandable = false, onDeleted }: { q: QueryRow; expandable?: boolean; onDeleted?: () => void }) {
   const [open, setOpen] = useState(false);
   const parts = partsOf(q);
   const bytes = q.bytes ?? maxBytes(parts);
@@ -25,6 +26,7 @@ export function QueryItem({ q, expandable = false }: { q: QueryRow; expandable?:
         {q.debug?.demo && <Badge>demo</Badge>}
         <span className="ml-auto font-mono">{q.latency_s.toFixed(1)}s</span>
         {expandable && <Icon name="chevron" size={14} className={`transition ${open ? "rotate-90" : ""}`} />}
+        {!expandable && <span className="-my-1.5 -mr-2"><DeleteQuestion id={q.id} compact onDeleted={onDeleted} /></span>}
       </div>
       <div className="space-y-1.5">
         <Bubble side="in" label="Question">{q.question}</Bubble>
@@ -47,6 +49,7 @@ export function QueryItem({ q, expandable = false }: { q: QueryRow; expandable?:
       <button className="block w-full p-4 text-left" aria-expanded={open} onClick={() => setOpen(!open)}>{body}</button>
       {open && (
         <div className="space-y-4 border-t border-line p-4 text-sm">
+          <div className="flex justify-end"><DeleteQuestion id={q.id} onDeleted={onDeleted} /></div>
           <div>
             <h3 className="mb-1 text-base font-semibold">Retrieved chunks</h3>
             {q.debug.chunks.length === 0 ? <p className="text-muted">Nothing relevant was found in the library.</p> : (

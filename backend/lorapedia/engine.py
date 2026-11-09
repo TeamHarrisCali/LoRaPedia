@@ -161,7 +161,7 @@ class Engine:
         self._quota[node] = self._asked_today(node) + 1
         return "queued"
 
-    def _midnight(self) -> float:
+    def midnight(self) -> float:
         t = time.localtime(self._wall())
         return time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1))
 
@@ -175,11 +175,16 @@ class Engine:
         self._roll_day()
         return dict(self._quota)
 
+    def forget_counts(self) -> None:
+        """Drop the per-node counts held in memory, so each is read again from the question log. Used after the log was cleared: the daily
+        limits count what is in the log, so clearing today's questions gives those nodes their questions back."""
+        self._quota, self._notified = {}, set()
+
     def _asked_today(self, node: str) -> int:
         """Questions this node has had accepted today (this computer's local day)."""
         self._roll_day()
         if node not in self._quota:
-            self._quota[node] = self.store.question_counts(self._midnight()).get(node, 0)
+            self._quota[node] = self.store.question_counts(self.midnight()).get(node, 0)
         return self._quota[node]
 
     async def _release(self, job: Job, wait: float) -> None:

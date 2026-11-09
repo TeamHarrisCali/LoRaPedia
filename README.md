@@ -304,6 +304,13 @@ Everything is editable in the UI; nothing requires environment variables. Where 
 Environment variables exist for deployment only: `LORAPEDIA_DATA` (data folder), `LORAPEDIA_HOST`,
 `LORAPEDIA_PORT`, and `LORAPEDIA_OLLAMA_URL` (where Ollama is, used for first-run defaults).
 
+**Clearing the question log.** Every question and answer is logged (the Dashboard's *Recent* list, the Live Feed, the CSV export) and
+the log is yours to clear, like browser history. **Clear…** on the Dashboard or the Live Feed deletes the last hour, 24 hours, 7 days or
+30 days, or everything, after telling you how many questions that is; a trash button deletes one question (open its row on the Live Feed
+first). Deleted text is overwritten in the log file, not just hidden. Two side effects, both because they are made from the same log: the node
+forgets what it remembered for follow-up questions, and the *daily limit* of anyone who asked today starts again from what is left. **Backups
+taken earlier still hold the questions** until they are replaced or deleted (below), so delete those too when it matters.
+
 **Backups.** *Settings → Backups* takes, downloads, uploads and restores backups of your **settings and question log** (a few
 hundred KB). One is taken automatically every day (the newest seven are kept), before every update, and before every restore, so a
 restore can always be undone. They are kept in `backups/` inside the data folder, so they protect against a bad change or update,

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ClearHistory } from "../components/ClearHistory";
 import { Pager } from "../components/Pager";
 import { QueryItem } from "../components/QueryItem";
 import { Button, EmptyState, PageHeader } from "../components/ui";
@@ -21,7 +22,7 @@ export function LiveFeed() {
     <>
       <PageHeader title="Live Feed"
         subtitle="Every question the node receives and how it answered. Click a row to see what was retrieved and the exact prompt, which is the first place to look when an answer is wrong."
-        actions={<Button icon="refresh" onClick={reload}>Refresh</Button>} />
+        actions={<><Button icon="refresh" onClick={reload}>Refresh</Button><ClearHistory onCleared={reload} /></>} />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <label className="sr-only" htmlFor="feed-filter">Filter conversations</label>
         <input id="feed-filter" className="field max-w-sm" placeholder="Filter by question, answer or sender" value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -29,7 +30,7 @@ export function LiveFeed() {
       </div>
       {loaded && shown.length === 0
         ? <EmptyState title={filter ? "Nothing matches that filter" : "No messages yet"}>{filter ? null : "Messages appear here the moment they arrive. Try the test box on the Dashboard."}</EmptyState>
-        : <><ul className="space-y-3" aria-live="polite">{paged.slice.map((q) => <QueryItem key={q.id} q={q} expandable />)}</ul>
+        : <><ul className="space-y-3" aria-live="polite">{paged.slice.map((q) => <QueryItem key={q.id} q={q} expandable onDeleted={reload} />)}</ul>
           <Pager page={paged.page} pages={paged.pages} total={paged.total} size={paged.size} onPage={paged.setPage} noun="conversations" /></>}
     </>
   );

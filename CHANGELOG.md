@@ -5,6 +5,21 @@ All notable changes to LoRaPedia. The format follows [Keep a Changelog](https://
 
 ## [Unreleased]
 
+## [0.5.0-beta.3] - 2026-11-09
+
+A test version for the beta channel.
+
+### Added
+- **Clear questions, like clearing browser history.** **Clear…** on the Dashboard (next to *Recent*) and on the Live Feed deletes the questions
+  logged in the last hour, 24 hours, 7 days or 30 days, or all of them. It tells you how many that is before it deletes anything, and cannot be
+  undone. A trash button on each question deletes just that one (on the Live Feed, open the row first; it asks "Delete it?" once more).
+  Deleted questions disappear from every open page at once, and the text is overwritten in the log file (`secure_delete`, and the file is
+  compacted), not just hidden. Because the follow-up memory and the daily limits are made from the same log, clearing also **makes the node forget
+  its follow-up memory**, and **gives back today's questions** to anyone whose count included what was deleted. **Backups taken earlier still
+  hold the questions** until they are replaced or deleted (Settings → Updates and backups); the dialog says so.
+- Under the hood: `GET /api/queries/count`, `DELETE /api/queries?hours=N` or `?all=true`, `DELETE /api/queries/{id}`. They are DELETE requests so
+  that a web page on another site cannot send one to your computer, and a request that does not say exactly how much to clear deletes nothing.
+
 ## [0.4.1] - 2026-10-29
 
 A patch release: a better indexing display and a fix for fresh installs. It is the code of the two betas numbered 0.5.0-beta.1 and 0.5.0-beta.2,

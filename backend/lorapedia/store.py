@@ -66,6 +66,7 @@ class Store:
         self._db.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         with self._lock:
+            self._db.execute("PRAGMA secure_delete=ON")  # a deleted question is overwritten in the file, not just forgotten by the index
             self._db.executescript(SCHEMA)
 
     def load_settings(self) -> Settings:
@@ -110,6 +111,38 @@ class Store:
             d["parts"] = d["answer"].split("\n")
             out.append(d)
         return out
+
+    # ---- clearing the question log (like clearing browser history) -------------------------------------------------------
+    def count_queries(self, since: float | None = None) -> int:
+        """How many logged questions a clear would remove: everything from `since` on, or all of them when None."""
+        where, args = ("WHERE ts >= ?", (since,)) if since is not None else ("", ())
+        with self._lock:
+            return self._db.execute(f"SELECT COUNT(*) AS n FROM queries {where}", args).fetchone()["n"]
+
+    def delete_queries(self, since: float | None = None) -> dict:
+        """Delete every question (and the delivery records of its answers) from `since` on, all when None.
+        Returns {"deleted": n, "newest": ts of the newest one deleted, or None}. The file is compacted afterwards."""
+        where, args = ("WHERE ts >= ?", (since,)) if since is not None else ("", ())
+        with self._lock:
+            row = self._db.execute(f"SELECT COUNT(*) AS n, MAX(ts) AS newest FROM queries {where}", args).fetchone()
+            if not row["n"]:
+                return {"deleted": 0, "newest": None}
+            self._db.execute(f"DELETE FROM deliveries WHERE query_id IN (SELECT id FROM queries {where})", args)
+            self._db.execute(f"DELETE FROM queries {where}", args)
+            self._db.commit()
+            self._db.execute("VACUUM")  # give the space back; with secure_delete the removed text is gone from the file too
+        return {"deleted": row["n"], "newest": row["newest"]}
+
+    def delete_query(self, query_id: int) -> dict | None:
+        """Delete one question. Returns {"sender_id", "ts"} of what was removed, or None when there is no such question."""
+        with self._lock:
+            row = self._db.execute("SELECT sender_id, ts FROM queries WHERE id=?", (query_id,)).fetchone()
+            if row is None:
+                return None
+            self._db.execute("DELETE FROM deliveries WHERE query_id=?", (query_id,))
+            self._db.execute("DELETE FROM queries WHERE id=?", (query_id,))
+            self._db.commit()
+        return {"sender_id": row["sender_id"], "ts": row["ts"]}
 
     # ---- delivery tracking ------------------------------------------------------------------------------------------------
     def delivery_sent(self, packet_id: int, to_id: str, part: int = 0, query_id: int | None = None, ts: float | None = None) -> None:

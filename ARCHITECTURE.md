@@ -89,7 +89,7 @@ not be indexed yet.
 | `retrieval/hybrid.py` | BM25 + vector search, rank fusion, rerank. |
 | `llm/openai_compat.py` | Chat client for Ollama, llama.cpp, LM Studio (OpenAI-style API). |
 | `download.py`, `ollama.py` | Resumable ZIM downloads and Kiwix catalog; model listing and pulls. |
-| `store.py` | Settings and the query log (SQLite). |
+| `store.py` | Settings and the query log (SQLite). Clearing the log (`delete_queries`, `delete_query`) removes the delivery records that hang off it, overwrites the text (`secure_delete`) and compacts the file; the API then also forgets the follow-up memory and, when anything from today went, the engine's in-memory daily counts. |
 | `mesh/observe.py` | Turns a received packet or the radio's node list into checked facts (positions, sensor readings, names, hops, signal). Pure. |
 | `mesh/store.py` | `mesh.db`: remembered nodes, telemetry, position trails, hourly packet/signal/hop counts, your notes; pruning. |
 | `mesh/service.py` | Buffers what the radio hears on the event loop, writes it in batches, and builds the node list and summary. Never transmits. |
